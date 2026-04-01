@@ -1,0 +1,19 @@
+{
+  "name": "opencli-plugin-awb",
+  "version": "0.1.0",
+  "description": "Anime Workbench terminal plugin for opencli",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node install.mjs"
+  },
+  "files": [
+    "common.js",
+    "index.js",
+    "install.mjs",
+    "README.md"
+  ],
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}
