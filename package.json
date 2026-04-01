@@ -4,6 +4,21 @@
   "description": "Anime Workbench terminal plugin for opencli",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LingJingAI-Labs/opencli-plugin-awb.git"
+  },
+  "homepage": "https://github.com/LingJingAI-Labs/opencli-plugin-awb#readme",
+  "bugs": {
+    "url": "https://github.com/LingJingAI-Labs/opencli-plugin-awb/issues"
+  },
+  "keywords": [
+    "opencli",
+    "plugin",
+    "awb",
+    "anime-workbench",
+    "lingjing"
+  ],
   "scripts": {
     "postinstall": "node install.mjs"
   },
