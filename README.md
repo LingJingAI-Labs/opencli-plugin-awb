@@ -1,12 +1,12 @@
-# opencli-plugin-awb
+# anime-workbench-cli
 
 灵境AI Anime Workbench 平台终端工具仓库。  
 Terminal tooling repository for the LingJing AI Anime Workbench platform.
 
 当前仓库包含两套入口：  
-This repository currently contains two entry points:
+This repository now serves as the main Anime Workbench CLI monorepo.
 
-- `opencli-plugin-awb`: 给 `opencli` 用的插件入口，继续兼容 `opencli awb ...`
+- `opencli frontend`: 给 `opencli` 用的插件入口，继续兼容 `opencli awb ...`
 - `@lingjingai/awb-cli`: 独立 CLI 入口，命令名为 `awb`
 - `@lingjingai/awb-core`: 两者共用的核心 SDK、鉴权、上传、模型查询和任务逻辑
 - `skills/awb`: 给 Agent 用的 skill 文档、流程、兼容元数据和更新脚本
@@ -28,6 +28,7 @@ This repository currently contains two entry points:
 更新机制文档 / Update mechanism docs:
 
 - [docs/update-mechanism.md](./docs/update-mechanism.md)
+- [docs/repository-architecture.md](./docs/repository-architecture.md)
 - [CHANGELOG.md](./CHANGELOG.md)
 
 ## 安装 / Install
@@ -43,13 +44,13 @@ npm install -g @jackwener/opencli
 从 GitHub 安装 / Install from GitHub:
 
 ```bash
-npm install -g github:LingJingAI-Labs/opencli-plugin-awb
+npm install -g github:LingJingAI-Labs/anime-workbench-cli
 ```
 
 或 / Or:
 
 ```bash
-npm install -g git+https://github.com/LingJingAI-Labs/opencli-plugin-awb.git
+npm install -g git+https://github.com/LingJingAI-Labs/anime-workbench-cli.git
 ```
 
 安装完成后，`postinstall` 会自动把插件放到 `~/.opencli/plugins/awb`。  
@@ -74,14 +75,14 @@ node packages/awb-cli/bin/awb.js --help
 ## 本地开发 / Local Development
 
 ```bash
-cd /Users/zheyong/Developer/opencli-plugin-awb
+cd /Users/zheyong/Developer/anime-workbench-cli
 npm install -g .
 ```
 
 或直接刷新本地插件安装 / Or refresh the local plugin install directly:
 
 ```bash
-node /Users/zheyong/Developer/opencli-plugin-awb/install.mjs
+node /Users/zheyong/Developer/anime-workbench-cli/install.mjs
 ```
 
 检查代码 / Validate:

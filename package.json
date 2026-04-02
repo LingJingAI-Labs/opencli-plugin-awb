@@ -1,7 +1,7 @@
 {
-  "name": "opencli-plugin-awb",
+  "name": "anime-workbench-cli",
   "version": "0.1.0",
-  "description": "LingJing AI Anime Workbench platform CLI plugin for opencli",
+  "description": "LingJing AI Anime Workbench CLI monorepo with standalone CLI, opencli frontend, shared core, and skills",
   "license": "MIT",
   "type": "module",
   "workspaces": [
@@ -9,11 +9,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/LingJingAI-Labs/opencli-plugin-awb.git"
+    "url": "git+https://github.com/LingJingAI-Labs/anime-workbench-cli.git"
   },
-  "homepage": "https://github.com/LingJingAI-Labs/opencli-plugin-awb#readme",
+  "homepage": "https://github.com/LingJingAI-Labs/anime-workbench-cli#readme",
   "bugs": {
-    "url": "https://github.com/LingJingAI-Labs/opencli-plugin-awb/issues"
+    "url": "https://github.com/LingJingAI-Labs/anime-workbench-cli/issues"
   },
   "keywords": [
     "opencli",

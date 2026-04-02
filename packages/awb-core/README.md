@@ -9,7 +9,7 @@ It contains the shared core runtime for LingJing AI Anime Workbench.
 - AWB API 请求封装
 - 文件上传与媒体元数据读取
 - 模型查询、参数整理、dry-run 与任务提交
-- 给 `opencli-plugin-awb` 和 `@lingjingai/awb-cli` 共用的命令定义
+- 给 `anime-workbench-cli` 仓库中的 opencli frontend 和 `@lingjingai/awb-cli` 共用的命令定义
 
 主要导出：
 

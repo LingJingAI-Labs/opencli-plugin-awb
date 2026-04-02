@@ -4,7 +4,7 @@
 
 本仓库同时维护三类交付物：
 
-- `opencli-plugin-awb`
+- `anime-workbench-cli` 仓库本身
 - `@lingjingai/awb-cli`
 - `skills/awb`
 
@@ -33,8 +33,8 @@
 ### 1. opencli 插件
 
 ```bash
-npm install -g github:LingJingAI-Labs/opencli-plugin-awb
-npm update -g github:LingJingAI-Labs/opencli-plugin-awb
+npm install -g github:LingJingAI-Labs/anime-workbench-cli
+npm update -g github:LingJingAI-Labs/anime-workbench-cli
 ```
 
 ### 2. 独立 CLI
