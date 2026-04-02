@@ -3,7 +3,7 @@
 灵境AI Anime Workbench 平台终端工具仓库。  
 Terminal tooling repository for the LingJing AI Anime Workbench platform.
 
-当前仓库包含两套入口：  
+当前仓库包含四层：  
 This repository now serves as the main Anime Workbench CLI monorepo.
 
 - `opencli frontend`: 给 `opencli` 用的插件入口，继续兼容 `opencli awb ...`
@@ -71,6 +71,7 @@ node packages/awb-cli/bin/awb.js --help
 ```
 
 后续独立 npm 包会发布为 `@lingjingai/awb-cli`。
+如果独立 CLI 本地还没有自己的登录态，它会优先沿用现有 `opencli awb` 的认证和项目组状态，避免重复登录。
 
 ## 本地开发 / Local Development
 

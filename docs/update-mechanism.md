@@ -85,7 +85,9 @@ bash skills/awb/scripts/update.sh
 - `~/.lingjingai/awb/auth.json`
 - `~/.lingjingai/awb/state.json`
 
-为了降低迁移成本，如果独立 CLI 本地还没有登录态，它会自动回退读取：
+为了降低迁移成本，如果独立 CLI 本地还没有自己的状态目录，它会优先沿用现有 `opencli awb` 状态文件，并继续把后续刷新写回这套旧路径。也就是说，在用户显式初始化独立 CLI 自己的状态前，两套入口会共用同一份本地状态。
+
+沿用的旧路径包括：
 
 - `~/.opencli/awb-auth.json`
 - `~/.opencli/awb-state.json`

@@ -10,6 +10,17 @@ function rewriteHelpText(text) {
   return String(text ?? '').replaceAll('opencli awb', runtimePrefix());
 }
 
+function rewriteOutputValue(value) {
+  if (typeof value === 'string') return rewriteHelpText(value);
+  if (Array.isArray(value)) return value.map((item) => rewriteOutputValue(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entryValue]) => [key, rewriteOutputValue(entryValue)]),
+    );
+  }
+  return value;
+}
+
 function collectCommands() {
   const commands = [];
   registerAwbCommands((spec) => {
@@ -120,11 +131,12 @@ function renderYamlValue(value, indent = 0) {
 }
 
 function renderOutput(result, format, columns) {
-  if (format === 'json') return `${JSON.stringify(result, null, 2)}\n`;
-  if (format === 'yaml') return `${renderYamlValue(result)}\n`;
-  if (format === 'csv') return `${renderCsv(result, columns)}\n`;
-  if (format === 'md') return `${renderMarkdown(result, columns)}\n`;
-  return `${renderTable(result, columns)}\n`;
+  const normalized = rewriteOutputValue(result);
+  if (format === 'json') return `${JSON.stringify(normalized, null, 2)}\n`;
+  if (format === 'yaml') return `${renderYamlValue(normalized)}\n`;
+  if (format === 'csv') return `${renderCsv(normalized, columns)}\n`;
+  if (format === 'md') return `${renderMarkdown(normalized, columns)}\n`;
+  return `${renderTable(normalized, columns)}\n`;
 }
 
 function findCommand(commands, name) {

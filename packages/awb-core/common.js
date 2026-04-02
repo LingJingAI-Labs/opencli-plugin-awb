@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,18 +14,47 @@ const LEGACY_COMPAT_AUTH_PATH = path.join(os.homedir(), '.animeworkbench_auth.js
 const IS_OPENCLI_RUNTIME =
   process.argv.some((arg) => /(^|[\\/])opencli(?:$|[\\/])/.test(String(arg))) ||
   import.meta.url.includes('/.opencli/plugins/');
+const STANDALONE_AUTH_PATH = path.join(STANDALONE_HOME_DIR, 'auth.json');
+const STANDALONE_STATE_PATH = path.join(STANDALONE_HOME_DIR, 'state.json');
+
+function shouldReuseLegacyStandaloneStorage() {
+  if (IS_OPENCLI_RUNTIME) return false;
+  if (
+    process.env.AWB_STATE_DIR ||
+    process.env.AWB_AUTH_PATH ||
+    process.env.AWB_AUTH_COMPAT_PATH ||
+    process.env.AWB_STATE_PATH
+  ) {
+    return false;
+  }
+  const standaloneStateExists =
+    existsSync(STANDALONE_HOME_DIR) ||
+    existsSync(STANDALONE_AUTH_PATH) ||
+    existsSync(STANDALONE_STATE_PATH);
+  const legacyStateExists =
+    existsSync(LEGACY_OPENCLI_AUTH_PATH) ||
+    existsSync(LEGACY_OPENCLI_STATE_PATH) ||
+    existsSync(LEGACY_COMPAT_AUTH_PATH);
+  return !standaloneStateExists && legacyStateExists;
+}
+
+const USE_LEGACY_STANDALONE_STORAGE = shouldReuseLegacyStandaloneStorage();
 export const APP_HOME_DIR =
   process.env.AWB_STATE_DIR ||
-  (IS_OPENCLI_RUNTIME ? OPENCLI_HOME_DIR : STANDALONE_HOME_DIR);
+  (IS_OPENCLI_RUNTIME || USE_LEGACY_STANDALONE_STORAGE ? OPENCLI_HOME_DIR : STANDALONE_HOME_DIR);
 export const AUTH_PATH =
   process.env.AWB_AUTH_PATH ||
-  path.join(APP_HOME_DIR, IS_OPENCLI_RUNTIME ? 'awb-auth.json' : 'auth.json');
+  (IS_OPENCLI_RUNTIME || USE_LEGACY_STANDALONE_STORAGE
+    ? LEGACY_OPENCLI_AUTH_PATH
+    : STANDALONE_AUTH_PATH);
 export const AUTH_COMPAT_PATH =
   process.env.AWB_AUTH_COMPAT_PATH ||
-  (IS_OPENCLI_RUNTIME ? LEGACY_COMPAT_AUTH_PATH : null);
+  (IS_OPENCLI_RUNTIME || USE_LEGACY_STANDALONE_STORAGE ? LEGACY_COMPAT_AUTH_PATH : null);
 export const STATE_PATH =
   process.env.AWB_STATE_PATH ||
-  path.join(APP_HOME_DIR, IS_OPENCLI_RUNTIME ? 'awb-state.json' : 'state.json');
+  (IS_OPENCLI_RUNTIME || USE_LEGACY_STANDALONE_STORAGE
+    ? LEGACY_OPENCLI_STATE_PATH
+    : STANDALONE_STATE_PATH);
 export const PRODUCT_CODE = '1004';
 export const SOURCE = 'pc';
 export const SEND_CODE_SCENE_ID = '18rjt5bc';
@@ -40,6 +70,10 @@ export const TASK_UPLOAD_SCENE = {
 
 function parentDir(filePath) {
   return path.dirname(filePath);
+}
+
+function commandPrefix() {
+  return process.env.AWB_COMMAND_PREFIX || 'opencli awb';
 }
 
 async function ensureParent(filePath) {
@@ -482,7 +516,7 @@ export async function markAuthInvalid(reason = '登录状态已过期') {
 }
 
 function reloginHint(reason = '登录状态已过期') {
-  return `${reason}，请重新执行 \`opencli awb login-qr\``;
+  return `${reason}，请重新执行 \`${commandPrefix()} login-qr\``;
 }
 
 export async function refreshAuth(forceRefreshToken) {
@@ -492,7 +526,9 @@ export async function refreshAuth(forceRefreshToken) {
     if (auth?.lastAuthError) {
       throw new Error(reloginHint(auth.lastAuthError));
     }
-    throw new Error('未找到可续期的登录信息，请先执行 `opencli awb login-qr` 或 `opencli awb phone-login`。');
+    throw new Error(
+      `未找到可续期的登录信息，请先执行 \`${commandPrefix()} login-qr\` 或 \`${commandPrefix()} phone-login\`。`,
+    );
   }
 
   try {
@@ -522,7 +558,9 @@ export async function ensureAuth() {
     if (auth?.lastAuthError) {
       throw new Error(reloginHint(auth.lastAuthError));
     }
-    throw new Error('当前未登录，请先执行 `opencli awb login-qr` 或 `opencli awb phone-login`。');
+    throw new Error(
+      `当前未登录，请先执行 \`${commandPrefix()} login-qr\` 或 \`${commandPrefix()} phone-login\`。`,
+    );
   }
   if (
     auth.expiresAt !== undefined &&
@@ -649,7 +687,7 @@ export async function resolveProjectGroupNo(explicit) {
 
   if (!projectGroupNo) {
     throw new Error(
-      'No project group selected. Use `opencli awb project-group-select --projectGroupNo <id>` or `opencli awb project-group-create --name <name>` first.',
+      `No project group selected. Use \`${commandPrefix()} project-group-select --projectGroupNo <id>\` or \`${commandPrefix()} project-group-create --name <name>\` first.`,
     );
   }
 

@@ -48,6 +48,14 @@ const DRY_RUN_ARG = {
 };
 const execFile = promisify(execFileCallback);
 
+function runtimeCommandPrefix() {
+  return process.env.AWB_COMMAND_PREFIX || 'opencli awb';
+}
+
+function rewriteRuntimeCommandPrefix(text) {
+  return String(text ?? '').replaceAll('opencli awb', runtimeCommandPrefix());
+}
+
 function toInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -98,35 +106,35 @@ function shouldExpandCommandHelp(commandName) {
 function commandHelp(summary, options = {}) {
   const commandName = options.command ?? extractHelpCommandName(options.examples);
   if (!shouldExpandCommandHelp(commandName)) {
-    return summary;
+    return rewriteRuntimeCommandPrefix(summary);
   }
-  const lines = [summary];
+  const lines = [rewriteRuntimeCommandPrefix(summary)];
   if (options.quickStart?.length) {
     lines.push('建议顺序:');
     for (const item of options.quickStart) {
-      lines.push(`  ${item}`);
+      lines.push(`  ${rewriteRuntimeCommandPrefix(item)}`);
     }
   }
   if (options.commonArgs?.length) {
     lines.push('常用参数:');
     for (const item of options.commonArgs) {
-      lines.push(`  ${item}`);
+      lines.push(`  ${rewriteRuntimeCommandPrefix(item)}`);
     }
   }
   if (options.advancedArgs?.length) {
     lines.push('高级参数:');
     for (const item of options.advancedArgs) {
-      lines.push(`  ${item}`);
+      lines.push(`  ${rewriteRuntimeCommandPrefix(item)}`);
     }
   }
   if (options.examples?.length) {
     lines.push('示例:');
     for (const example of options.examples) {
-      lines.push(`  ${example}`);
+      lines.push(`  ${rewriteRuntimeCommandPrefix(example)}`);
     }
   }
   if (options.hint) {
-    lines.push(`提示: ${options.hint}`);
+    lines.push(`提示: ${rewriteRuntimeCommandPrefix(options.hint)}`);
   }
   if (options.dryRun) {
     lines.push('支持: 追加 `--dryRun true` 仅预览，不执行写操作。');
@@ -136,7 +144,7 @@ function commandHelp(summary, options = {}) {
 
 function printRuntimeNote(lines) {
   for (const line of lines) {
-    process.stderr.write(`${line}\n`);
+    process.stderr.write(`${rewriteRuntimeCommandPrefix(line)}\n`);
   }
 }
 
@@ -4389,7 +4397,7 @@ function printModelOptionSummary(model, modelDefinition, rows, kind) {
   for (const example of buildModelModeExamples(kind, normalizedModel, rowByKey)) {
     summaryLines.push(`[AWB] ${example}`);
   }
-  summaryLines.push('[AWB] 表格说明: `底层参数` 是服务端 promptParams key；`推荐CLI用法` 是本插件推荐入口，所以两列不一定同名。');
+  summaryLines.push('[AWB] 表格说明: `底层参数` 是服务端 promptParams key；`推荐CLI用法` 是当前 CLI 推荐入口，所以两列不一定同名。');
   printRuntimeNote(summaryLines);
 }
 
@@ -5471,7 +5479,7 @@ cli({
     quickStart: [
       '先从 `image-models` 或 `video-models` 里复制 `modelGroupCode`',
       '再查当前模型模式、关键约束和 CLI 示例',
-      '注意：左列是服务端底层参数名，右列是本插件推荐 CLI 入口，不一定同名',
+      '注意：左列是服务端底层参数名，右列是当前 CLI 推荐入口，不一定同名',
     ],
     examples: [
       'opencli awb model-options --modelGroupCode <g>',
