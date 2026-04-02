@@ -75,3 +75,22 @@ bash skills/awb/scripts/update.sh
 - Skill 默认优先调用 `awb`
 - 如果机器上没有 `awb`，再退回 `opencli awb`
 - Skill 文档示例尽量写成 `"$AWB_CMD" ...`
+- Workflow 只保留单元化基础用法，不维护复杂串联生产流
+
+## 独立 CLI 登录态
+
+独立 `awb` CLI 默认使用自己的状态目录：
+
+- `~/.lingjingai/awb/auth.json`
+- `~/.lingjingai/awb/state.json`
+
+为了降低迁移成本，如果独立 CLI 本地还没有登录态，它会自动回退读取：
+
+- `~/.opencli/awb-auth.json`
+- `~/.opencli/awb-state.json`
+- `~/.animeworkbench_auth.json`
+
+也就是说：
+
+- 新用户可以直接用独立 CLI 自己登录
+- 已经登录过 `opencli awb` 的用户，独立 CLI 也能直接复用这份登录态

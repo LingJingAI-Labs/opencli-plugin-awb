@@ -1,4 +1,6 @@
-# Text To Image Pipeline
+# Simple Text To Image
+
+最基础的文生图：
 
 ```bash
 "$AWB_CMD" auth-status -f json

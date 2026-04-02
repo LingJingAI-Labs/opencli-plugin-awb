@@ -117,6 +117,15 @@ bash skills/awb/scripts/check-update.sh
 bash skills/awb/scripts/update.sh
 ```
 
+Skill workflow 只保留单元化基础用法，例如：
+
+- 简单文生图
+- 参考图生图 / 多图生图
+- 首帧生视频
+- 首尾帧生视频
+- 多参考生视频
+- 故事板生视频
+
 ## 登录 / Login
 
 终端微信扫码登录 / WeChat QR login in terminal:

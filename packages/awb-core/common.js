@@ -7,6 +7,9 @@ export const API_ORIGIN = 'https://animeworkbench.lingjingai.cn';
 export const WEB_ORIGIN = API_ORIGIN;
 const OPENCLI_HOME_DIR = path.join(os.homedir(), '.opencli');
 const STANDALONE_HOME_DIR = path.join(os.homedir(), '.lingjingai', 'awb');
+const LEGACY_OPENCLI_AUTH_PATH = path.join(OPENCLI_HOME_DIR, 'awb-auth.json');
+const LEGACY_OPENCLI_STATE_PATH = path.join(OPENCLI_HOME_DIR, 'awb-state.json');
+const LEGACY_COMPAT_AUTH_PATH = path.join(os.homedir(), '.animeworkbench_auth.json');
 const IS_OPENCLI_RUNTIME =
   process.argv.some((arg) => /(^|[\\/])opencli(?:$|[\\/])/.test(String(arg))) ||
   import.meta.url.includes('/.opencli/plugins/');
@@ -18,7 +21,7 @@ export const AUTH_PATH =
   path.join(APP_HOME_DIR, IS_OPENCLI_RUNTIME ? 'awb-auth.json' : 'auth.json');
 export const AUTH_COMPAT_PATH =
   process.env.AWB_AUTH_COMPAT_PATH ||
-  (IS_OPENCLI_RUNTIME ? path.join(os.homedir(), '.animeworkbench_auth.json') : null);
+  (IS_OPENCLI_RUNTIME ? LEGACY_COMPAT_AUTH_PATH : null);
 export const STATE_PATH =
   process.env.AWB_STATE_PATH ||
   path.join(APP_HOME_DIR, IS_OPENCLI_RUNTIME ? 'awb-state.json' : 'state.json');
@@ -213,12 +216,24 @@ export async function readImageMetadata(filePath) {
 }
 
 export async function loadAuth() {
-  const [primary, compat] = await Promise.all([
+  const fallbackAuthPath =
+    !IS_OPENCLI_RUNTIME && AUTH_PATH !== LEGACY_OPENCLI_AUTH_PATH
+      ? LEGACY_OPENCLI_AUTH_PATH
+      : null;
+  const fallbackCompatPath =
+    !IS_OPENCLI_RUNTIME && AUTH_COMPAT_PATH !== LEGACY_COMPAT_AUTH_PATH
+      ? LEGACY_COMPAT_AUTH_PATH
+      : null;
+  const [primary, compat, fallbackPrimary, fallbackCompat] = await Promise.all([
     readJson(AUTH_PATH, null),
     AUTH_COMPAT_PATH ? readJson(AUTH_COMPAT_PATH, null) : Promise.resolve(null),
+    fallbackAuthPath ? readJson(fallbackAuthPath, null) : Promise.resolve(null),
+    fallbackCompatPath ? readJson(fallbackCompatPath, null) : Promise.resolve(null),
   ]);
-  if (!primary && !compat) return null;
-  return mergeAuthRecords(primary, compat);
+  const resolvedPrimary = primary ?? fallbackPrimary;
+  const resolvedCompat = compat ?? fallbackCompat;
+  if (!resolvedPrimary && !resolvedCompat) return null;
+  return mergeAuthRecords(resolvedPrimary, resolvedCompat);
 }
 
 export async function saveAuth(auth) {
@@ -248,7 +263,12 @@ export async function clearAuth() {
 }
 
 export async function loadState() {
-  return readJson(STATE_PATH, {});
+  const current = await readJson(STATE_PATH, null);
+  if (current) return current;
+  if (!IS_OPENCLI_RUNTIME && STATE_PATH !== LEGACY_OPENCLI_STATE_PATH) {
+    return (await readJson(LEGACY_OPENCLI_STATE_PATH, {})) ?? {};
+  }
+  return {};
 }
 
 export async function saveState(state) {

@@ -30,10 +30,12 @@ command -v "$AWB_CMD" >/dev/null 2>&1 || AWB_CMD="opencli awb"
 
 高频流程：
 
-- 文生图：见 `workflows/text-to-image-pipeline.md`
-- 图生视频：见 `workflows/image-to-video-pipeline.md`
-- 完整生产流：见 `workflows/full-production-pipeline.md`
-- 批量创作：见 `workflows/batch-creation.md`
+- 简单文生图：见 `workflows/simple-text-to-image.md`
+- 参考图生图 / 多图生图：见 `workflows/reference-image-generation.md`
+- 首帧生视频：见 `workflows/first-frame-video.md`
+- 首尾帧生视频：见 `workflows/first-last-frame-video.md`
+- 多参考生视频：见 `workflows/multi-reference-video.md`
+- 故事板生视频：见 `workflows/storyboard-video.md`
 
 更新与兼容：
 
@@ -49,3 +51,4 @@ command -v "$AWB_CMD" >/dev/null 2>&1 || AWB_CMD="opencli awb"
 - 如果机器上没有 `awb`，再退回 `opencli awb`
 - JSON 输出统一优先 `-f json`
 - 真正提交前，优先先跑 `--dryRun true`
+- workflow 只保留单元化基础用法，不写复杂串联生产流
