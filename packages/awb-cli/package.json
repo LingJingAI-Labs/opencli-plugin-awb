@@ -1,0 +1,17 @@
+{
+  "name": "@lingjingai/awb-cli",
+  "version": "0.1.0",
+  "description": "Standalone CLI for LingJing AI Anime Workbench",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "awb": "./bin/awb.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "dependencies": {
+    "@lingjingai/awb-core": "0.1.0"
+  }
+}

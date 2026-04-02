@@ -1,12 +1,30 @@
 # opencli-plugin-awb
 
-灵境AI Anime Workbench 平台 CLI 插件。  
-CLI plugin for the LingJing AI Anime Workbench platform.
+灵境AI Anime Workbench 平台终端工具仓库。  
+Terminal tooling repository for the LingJing AI Anime Workbench platform.
 
-这个插件把 `animeworkbench.lingjingai.cn` 的常用能力带到终端里，适合在 shell、脚本和 agent 流程里直接调用。  
-This plugin brings common Anime Workbench workflows into the terminal for shell, scripting, and agent use.
+当前仓库包含两套入口：  
+This repository currently contains two entry points:
+
+- `opencli-plugin-awb`: 给 `opencli` 用的插件入口，继续兼容 `opencli awb ...`
+- `@lingjingai/awb-cli`: 独立 CLI 入口，命令名为 `awb`
+- `@lingjingai/awb-core`: 两者共用的核心 SDK、鉴权、上传、模型查询和任务逻辑
+
+目录结构 / Layout:
+
+```text
+.
+├── index.js                  # opencli 插件入口 / opencli plugin entry
+├── install.mjs              # opencli 插件安装脚本 / opencli plugin installer
+├── packages/
+│   ├── awb-core/            # shared core
+│   └── awb-cli/             # standalone CLI
+└── README.md
+```
 
 ## 安装 / Install
+
+### opencli 插件 / opencli Plugin
 
 前置依赖 / Prerequisite:
 
@@ -35,6 +53,16 @@ After installation, `postinstall` will place the plugin under `~/.opencli/plugin
 opencli awb --help
 ```
 
+### 独立 CLI / Standalone CLI
+
+当前仓库已经完成独立 CLI 骨架，入口文件在：
+
+```bash
+node packages/awb-cli/bin/awb.js --help
+```
+
+后续独立 npm 包会发布为 `@lingjingai/awb-cli`。
+
 ## 本地开发 / Local Development
 
 ```bash
@@ -46,6 +74,18 @@ npm install -g .
 
 ```bash
 node /Users/zheyong/Developer/opencli-plugin-awb/install.mjs
+```
+
+检查代码 / Validate:
+
+```bash
+npm run check
+```
+
+同步版本号 / Sync versions:
+
+```bash
+npm run version:sync -- 0.1.1
 ```
 
 ## 登录 / Login

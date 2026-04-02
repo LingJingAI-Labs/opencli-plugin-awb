@@ -4,6 +4,9 @@
   "description": "LingJing AI Anime Workbench platform CLI plugin for opencli",
   "license": "MIT",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/LingJingAI-Labs/opencli-plugin-awb.git"
@@ -20,12 +23,15 @@
     "lingjing"
   ],
   "scripts": {
-    "postinstall": "node install.mjs"
+    "check": "node --check index.js && node --check install.mjs && node --check packages/awb-core/commands.js && node --check packages/awb-core/standalone.js && node --check packages/awb-cli/bin/awb.js",
+    "postinstall": "node install.mjs",
+    "version:sync": "node scripts/sync-versions.mjs"
   },
   "files": [
     "common.js",
     "index.js",
     "install.mjs",
+    "packages/awb-core",
     "README.md"
   ],
   "dependencies": {
