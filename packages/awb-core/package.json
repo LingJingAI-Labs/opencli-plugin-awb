@@ -1,6 +1,6 @@
 {
   "name": "@lingjingai/awb-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Core SDK and shared command runtime for LingJing AI Anime Workbench",
   "license": "MIT",
   "type": "module",
@@ -16,6 +16,7 @@
     "README.md"
   ],
   "dependencies": {
+    "chalk": "^5.6.2",
     "qrcode": "^1.5.4"
   }
 }
