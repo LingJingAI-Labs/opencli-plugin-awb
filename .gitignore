@@ -3,3 +3,4 @@ node_modules/
 .tmp-awb-create.js
 .tmp-awb-creation.js
 tmp-thirdasset-probe.mjs
+.DS_Store

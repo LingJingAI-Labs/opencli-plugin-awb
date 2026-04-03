@@ -6,7 +6,7 @@
 "$AWB_CMD" upload-files --files ./ref.webp -f json
 ```
 
-主体素材上传：
+内部主体素材上传：
 
 ```bash
 "$AWB_CMD" subject-upload --name 小莉 --primaryFile ./three-view.png --projectName demo --dryRun true -f json
@@ -23,3 +23,4 @@
 
 - 普通图片/视频/音频参考直接走 `ref*`
 - 已有主体素材 ID 时，优先走 `refSubjects`
+- `subject-upload` 仅内部员工可用；普通用户不要把它当通用上传命令

@@ -9,7 +9,14 @@
 
 ```bash
 AWB_CMD=awb
-command -v "$AWB_CMD" >/dev/null 2>&1 || AWB_CMD="opencli awb"
+if ! command -v "$AWB_CMD" >/dev/null 2>&1; then
+  if command -v opencli >/dev/null 2>&1 && opencli awb --help >/dev/null 2>&1; then
+    AWB_CMD="opencli awb"
+  else
+    echo "No usable AWB CLI found" >&2
+    exit 1
+  fi
+fi
 ```
 
 在调用任何创作命令前，先做这三步：
@@ -24,7 +31,7 @@ command -v "$AWB_CMD" >/dev/null 2>&1 || AWB_CMD="opencli awb"
 - 模型选择：见 `capabilities/model-discovery.md`
 - 生图：见 `capabilities/create-image.md`
 - 生视频：见 `capabilities/create-video.md`
-- 主体素材与上传：见 `capabilities/upload-and-assets.md`
+- 素材上传 / 内部主体素材：见 `capabilities/upload-and-assets.md`
 - 任务查询：见 `capabilities/task-management.md`
 - 积分与开票：见 `capabilities/billing.md`
 
@@ -50,7 +57,7 @@ command -v "$AWB_CMD" >/dev/null 2>&1 || AWB_CMD="opencli awb"
 规则：
 
 - 默认优先用 `awb`
-- 如果机器上没有 `awb`，再退回 `opencli awb`
+- 如果机器上没有 `awb`，且 `opencli awb --help` 可用，再退回 `opencli awb`
 - JSON 输出统一优先 `-f json`
 - 真正提交前，优先先跑 `--dryRun true`
 - workflow 只保留单元化基础用法，不写复杂串联生产流

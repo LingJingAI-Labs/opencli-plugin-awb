@@ -4,5 +4,5 @@
   "minPluginVersion": "0.1.3",
   "preferredCommand": "awb",
   "fallbackCommand": "opencli awb",
-  "updatedAt": "2026-04-02"
+  "updatedAt": "2026-04-03"
 }
