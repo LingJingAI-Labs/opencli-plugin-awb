@@ -1,7 +1,7 @@
 {
-  "skillVersion": "0.1.1",
-  "minCliVersion": "0.1.1",
-  "minPluginVersion": "0.1.1",
+  "skillVersion": "0.1.2",
+  "minCliVersion": "0.1.2",
+  "minPluginVersion": "0.1.2",
   "preferredCommand": "awb",
   "fallbackCommand": "opencli awb",
   "updatedAt": "2026-04-02"

@@ -178,6 +178,27 @@ function optionUsage(arg) {
   return `--${arg.name} ${suffix}`;
 }
 
+function missingRequiredArgs(command, kwargs, positional = []) {
+  const missing = [];
+  let positionalIndex = 0;
+  for (const arg of command.args ?? []) {
+    if (!arg.required) continue;
+    if (arg.positional) {
+      const value = positional[positionalIndex];
+      positionalIndex += 1;
+      if (value === undefined || value === null || value === '') {
+        missing.push(arg);
+      }
+      continue;
+    }
+    const value = kwargs[arg.name];
+    if (value === undefined || value === null || value === '') {
+      missing.push(arg);
+    }
+  }
+  return missing;
+}
+
 function printGeneralHelp(commands) {
   const groups = new Map();
   for (const command of commands) {
@@ -394,6 +415,15 @@ export async function runStandaloneCli(argv = process.argv.slice(2)) {
   const kwargs = { ...parsed.kwargs };
   if (parsed.verbose) {
     kwargs.verbose = true;
+  }
+
+  const missingArgs = missingRequiredArgs(command, kwargs, parsed.positional.slice(1));
+  if (missingArgs.length) {
+    const labels = missingArgs.map((arg) => `--${arg.name}`).join(', ');
+    process.stderr.write(`缺少必填参数: ${labels}\n`);
+    process.stderr.write(`运行 \`${runtimePrefix()} ${command.name} --help\` 查看用法。\n`);
+    process.exitCode = 1;
+    return;
   }
 
   try {
