@@ -37,6 +37,19 @@ npm install -g github:LingJingAI-Labs/anime-workbench-cli
 npm update -g github:LingJingAI-Labs/anime-workbench-cli
 ```
 
+安装脚本会自动完成两件事：
+
+- 把插件同步到 `~/.opencli/plugins/awb`
+- 对已安装的 `@jackwener/opencli` 打 AWB 专属展示补丁
+
+这个补丁只针对 AWB 体验层，主要包括：
+
+- 顶部品牌栏显示 `灵境AI | https://lingjingai.cn/`
+- AWB 顶部时间统一为中文 24 小时制
+- `opencli awb` 的表格头部居中显示
+
+目标是让“别人直接安装就能得到同样的 `opencli awb` 体验”，而不是要求手工改宿主文件。
+
 ### 2. 独立 CLI
 
 未来发布后：

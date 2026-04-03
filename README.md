@@ -56,6 +56,9 @@ npm install -g git+https://github.com/LingJingAI-Labs/anime-workbench-cli.git
 安装完成后，`postinstall` 会自动把插件放到 `~/.opencli/plugins/awb`。  
 After installation, `postinstall` will place the plugin under `~/.opencli/plugins/awb`.
 
+同时会自动补齐 `opencli awb` 的 AWB 专属展示层，包括顶部品牌栏、中文时间格式和 AWB 表格头部居中，不需要用户再手工 patch 宿主。  
+It also automatically patches the AWB-specific presentation layer inside `opencli`, including the brand banner, Chinese datetime formatting, and centered AWB table headers.
+
 验证安装 / Verify:
 
 ```bash

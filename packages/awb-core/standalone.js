@@ -72,14 +72,16 @@ function renderTable(rows, columns = []) {
       ...items.map((item) => [...truncate(formatScalar(item?.[column]))].length),
     ),
   );
-  const header = resolvedColumns.map((column, index) => padCenter(column, widths[index])).join(' │ ');
-  const divider = widths.map((width) => '─'.repeat(width)).join('─┼─');
+  const top = `┌${widths.map((width) => '─'.repeat(width + 2)).join('┬')}┐`;
+  const header = `│ ${resolvedColumns.map((column, index) => padCenter(column, widths[index])).join(' │ ')} │`;
+  const divider = `├${widths.map((width) => '─'.repeat(width + 2)).join('┼')}┤`;
   const body = items.map((item) =>
-    resolvedColumns
+    `│ ${resolvedColumns
       .map((column, index) => pad(truncate(formatScalar(item?.[column])), widths[index]))
-      .join(' │ '),
+      .join(' │ ')} │`,
   );
-  return [header, divider, ...body].join('\n');
+  const bottom = `└${widths.map((width) => '─'.repeat(width + 2)).join('┴')}┘`;
+  return [top, header, divider, ...body, bottom].join('\n');
 }
 
 function renderMarkdown(rows, columns = []) {
