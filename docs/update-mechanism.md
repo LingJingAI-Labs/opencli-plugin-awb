@@ -106,6 +106,8 @@ bash skills/awb/scripts/update.sh
 - `~/.opencli/awb-state.json`
 - `~/.animeworkbench_auth.json`
 
+如果这些兼容路径同时存在，CLI 会优先采用更新时间更晚、或令牌更“新鲜”的那份认证记录，而不是机械地固定只认某一个文件。
+
 也就是说：
 
 - 新用户可以直接用独立 CLI 自己登录

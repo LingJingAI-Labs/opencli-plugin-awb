@@ -1,0 +1,4 @@
+interface:
+  display_name: "AWB"
+  short_description: "Run Anime Workbench CLI workflows and model checks"
+  default_prompt: "Use $awb to choose the right Anime Workbench model and run the correct CLI command for this task."

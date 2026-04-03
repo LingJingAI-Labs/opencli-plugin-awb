@@ -376,6 +376,32 @@ function normalizeExpiresAt(expires) {
   return value < 1_000_000_000_000 ? Date.now() + value : value;
 }
 
+function normalizeUpdatedAt(value) {
+  if (!value) return 0;
+  const time = Date.parse(String(value));
+  return Number.isFinite(time) ? time : 0;
+}
+
+function pickPreferredAuthRecord(primary, compat) {
+  if (primary && !compat) return primary;
+  if (compat && !primary) return compat;
+  if (!primary && !compat) return null;
+
+  const primaryUpdatedAt = normalizeUpdatedAt(primary?.updatedAt);
+  const compatUpdatedAt = normalizeUpdatedAt(compat?.updatedAt);
+  if (compatUpdatedAt > primaryUpdatedAt + 1000) return compat;
+  if (primaryUpdatedAt > compatUpdatedAt + 1000) return primary;
+
+  const primaryExpiresAt = normalizeExpiresAt(primary?.expiresAt) ?? 0;
+  const compatExpiresAt = normalizeExpiresAt(compat?.expiresAt) ?? 0;
+  if (compatExpiresAt > primaryExpiresAt + 1000) return compat;
+  if (primaryExpiresAt > compatExpiresAt + 1000) return primary;
+
+  const primaryScore = Number(Boolean(primary?.refreshToken)) + Number(Boolean(primary?.groupId ?? primary?.currentGroupId));
+  const compatScore = Number(Boolean(compat?.refreshToken)) + Number(Boolean(compat?.groupId ?? compat?.currentGroupId));
+  return compatScore > primaryScore ? compat : primary;
+}
+
 function choosePreferredToken(primary, compat) {
   const primaryExpiresAt = normalizeExpiresAt(primary?.expiresAt) ?? 0;
   const compatExpiresAt = normalizeExpiresAt(compat?.expiresAt) ?? 0;
@@ -389,6 +415,8 @@ function choosePreferredToken(primary, compat) {
 }
 
 function mergeAuthRecords(primary, compat) {
+  const preferredRecord = pickPreferredAuthRecord(primary, compat);
+  const secondaryRecord = preferredRecord === compat ? primary : compat;
   const merged = {
     ...(compat ?? {}),
     ...(primary ?? {}),
@@ -404,20 +432,33 @@ function mergeAuthRecords(primary, compat) {
 
   merged.token = preferred.token ?? merged.token ?? null;
   merged.expiresAt = preferred.expiresAt ?? merged.expiresAt ?? null;
-  merged.refreshToken = primary?.refreshToken ?? compat?.refreshToken ?? merged.refreshToken ?? null;
+  merged.refreshToken =
+    preferredRecord?.refreshToken ??
+    secondaryRecord?.refreshToken ??
+    merged.refreshToken ??
+    null;
   merged.groupId =
-    primary?.groupId ??
-    compat?.groupId ??
-    primary?.currentGroupId ??
-    compat?.currentGroupId ??
+    preferredRecord?.groupId ??
+    secondaryRecord?.groupId ??
+    preferredRecord?.currentGroupId ??
+    secondaryRecord?.currentGroupId ??
     firstGroupMember?.groupId ??
     jwtPayload.groupId ??
     null;
-  merged.currentGroupId = primary?.currentGroupId ?? compat?.currentGroupId ?? merged.groupId ?? null;
-  merged.userId = primary?.userId ?? compat?.userId ?? jwtPayload.sub ?? jwtPayload.userId ?? null;
+  merged.currentGroupId =
+    preferredRecord?.currentGroupId ??
+    secondaryRecord?.currentGroupId ??
+    merged.groupId ??
+    null;
+  merged.userId =
+    preferredRecord?.userId ??
+    secondaryRecord?.userId ??
+    jwtPayload.sub ??
+    jwtPayload.userId ??
+    null;
   merged.userName =
-    primary?.userName ??
-    compat?.userName ??
+    preferredRecord?.userName ??
+    secondaryRecord?.userName ??
     jwtPayload.userName ??
     jwtPayload.username ??
     null;

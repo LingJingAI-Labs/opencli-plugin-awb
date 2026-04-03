@@ -4,3 +4,4 @@ node_modules/
 .tmp-awb-creation.js
 tmp-thirdasset-probe.mjs
 .DS_Store
+skills/*.zip

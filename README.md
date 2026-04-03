@@ -74,7 +74,13 @@ node packages/awb-cli/bin/awb.js --help
 ```
 
 后续独立 npm 包会发布为 `@lingjingai/awb-cli`。
-如果独立 CLI 本地还没有自己的登录态，它会优先沿用现有 `opencli awb` 的认证和项目组状态，避免重复登录。
+如果独立 CLI 本地还没有自己的登录态，它会优先沿用现有 AWB 认证和项目组状态，避免重复登录。兼容读取的旧路径包括：
+
+- `~/.opencli/awb-auth.json`
+- `~/.opencli/awb-state.json`
+- `~/.animeworkbench_auth.json`
+
+如果这些路径同时存在，CLI 会优先采用更新更晚、令牌更新鲜的那份认证记录。
 
 ## 本地开发 / Local Development
 
