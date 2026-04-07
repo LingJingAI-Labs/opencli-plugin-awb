@@ -10,6 +10,12 @@ description: Use when Codex needs to operate Anime Workbench through `awb` or `o
 - 独立 CLI：`awb`
 - opencli 插件：`opencli awb`
 
+登录前提：
+
+- 先确认用户已在官网完成注册并绑定微信：`https://animeworkbench.lingjingai.cn/home`
+- CLI 默认推荐通过微信扫码登录
+- 如果官网账号还没绑定微信，先去官网完成绑定，再继续 `login-qr`
+
 先解析可用命令：
 
 ```bash
