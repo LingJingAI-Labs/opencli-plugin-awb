@@ -2280,7 +2280,7 @@ async function resolveModelSelection(kind, kwargs = {}) {
         normalizeCodeKey(item.modelCode) === normalizeCodeKey(rawModelCode),
     );
     if (!match) {
-      throw new Error(`当前账号下未找到对应的模型: ${rawModelGroupCode}。可先执行 \`opencli awb image-models\` 或 \`opencli awb video-models\` 查看当前账号可用模型。`);
+      throw new Error(`当前账号下未找到对应的模型: ${rawModelGroupCode}。可先执行 \`${runtimeCommandPrefix()} image-models\` 或 \`${runtimeCommandPrefix()} video-models\` 查看当前账号可用模型。`);
     }
     return {
       modelCode: match.modelCode,
@@ -2293,7 +2293,7 @@ async function resolveModelSelection(kind, kwargs = {}) {
   if (rawModelGroupCode) {
     const match = rows.find((item) => normalizeCodeKey(item.modelGroupCode) === normalizeCodeKey(rawModelGroupCode));
     if (!match) {
-      throw new Error(`当前账号下未找到对应的 modelGroupCode: ${rawModelGroupCode}。可先执行 \`opencli awb image-models\` 或 \`opencli awb video-models\` 查看。`);
+      throw new Error(`当前账号下未找到对应的 modelGroupCode: ${rawModelGroupCode}。可先执行 \`${runtimeCommandPrefix()} image-models\` 或 \`${runtimeCommandPrefix()} video-models\` 查看。`);
     }
     return {
       modelCode: match.modelCode,
@@ -2326,7 +2326,7 @@ async function resolveModelSelection(kind, kwargs = {}) {
         formatModelGroupChoices(fuzzyMatches),
       ].join('\n'));
     }
-    throw new Error(`当前账号下未找到对应的 modelCode: ${rawModelCode}。如果你记的是模型名，建议先执行 \`opencli awb image-models --model "${rawModelCode}"\` 或直接改传 \`--modelGroupCode\`。`);
+    throw new Error(`当前账号下未找到对应的 modelCode: ${rawModelCode}。如果你记的是模型名，建议先执行 \`${runtimeCommandPrefix()} image-models --model "${rawModelCode}"\` 或直接改传 \`--modelGroupCode\`。`);
   }
   if (matches.length === 1) {
     const match = matches[0];
@@ -2674,10 +2674,10 @@ function ensureRequiredArgs(commandName, kwargs, specs) {
   }
   if (kwargs?.modelCode && kwargs?.modelGroupCode) {
     lines.push(
-      `可先查看模型参数: opencli awb model-options --modelCode ${kwargs.modelCode} --modelGroupCode ${kwargs.modelGroupCode}`,
+      `可先查看模型参数: ${runtimeCommandPrefix()} model-options --modelCode ${kwargs.modelCode} --modelGroupCode ${kwargs.modelGroupCode}`,
     );
   } else {
-    lines.push('可先执行 `opencli awb image-models` 或 `opencli awb video-models` 选择模型。');
+    lines.push(`可先执行 ${runtimeCommandPrefix()} image-models 或 ${runtimeCommandPrefix()} video-models 选择模型。`);
   }
   throw new Error(lines.join('\n'));
 }
@@ -2690,7 +2690,7 @@ function ensureModelSelector(commandName, kwargs) {
     `缺少必要参数：${commandName}`,
     '- 至少提供一个模型标识：`--modelGroupCode` 或 `--modelCode`',
     '- 推荐优先提供 `--modelGroupCode`，因为它在平台里是唯一的',
-    '可先执行 `opencli awb image-models` 或 `opencli awb video-models` 查看。',
+    `可先执行 ${runtimeCommandPrefix()} image-models 或 ${runtimeCommandPrefix()} video-models 查看。`,
   ].join('\n'));
 }
 
@@ -2803,7 +2803,7 @@ async function validateModelPromptParams(kind, kwargs, promptParams, source = pr
     lines.push(`- ${label} 的值无效: ${item.value}；可选值: ${item.values.join(', ')}；示例: ${modelParamExample(kind, item.paramKey, item.values)}`);
   }
   lines.push(
-    `可先查看当前模型参数: opencli awb model-options --modelCode ${kwargs.modelCode} --modelGroupCode ${kwargs.modelGroupCode}`,
+    `可先查看当前模型参数: ${runtimeCommandPrefix()} model-options --modelCode ${kwargs.modelCode} --modelGroupCode ${kwargs.modelGroupCode}`,
   );
   throw new Error(lines.join('\n'));
 }
@@ -2895,18 +2895,18 @@ function buildModelPreviewCommand(kind, modelRow) {
   const groupCode = modelRow?.modelGroupCode ?? '<modelGroupCode>';
   if (kind === 'image') {
     if (String(modelRow?.refFeature ?? '').includes('iref')) {
-      return `opencli awb image-create --modelGroupCode ${groupCode} --prompt "参考图里的角色在雨夜奔跑" --quality <quality> --ratio <ratio> --generateNum 1 --irefFiles "./a.webp" --dryRun true`;
+      return `${runtimeCommandPrefix()} image-create --modelGroupCode ${groupCode} --prompt "参考图里的角色在雨夜奔跑" --quality <quality> --ratio <ratio> --generateNum 1 --irefFiles "./a.webp" --dryRun true`;
     }
-    return `opencli awb image-create --modelGroupCode ${groupCode} --prompt "一只小狗" --quality <quality> --ratio <ratio> --generateNum 1 --dryRun true`;
+    return `${runtimeCommandPrefix()} image-create --modelGroupCode ${groupCode} --prompt "一只小狗" --quality <quality> --ratio <ratio> --generateNum 1 --dryRun true`;
   }
 
   if (videoModelSupportsPromptOnly(modelRow)) {
-    return `opencli awb video-create --modelGroupCode ${groupCode} --prompt "雨夜街头，人物缓慢走向镜头，电影感" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
+    return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "雨夜街头，人物缓慢走向镜头，电影感" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
   }
   if (trimToNull(modelRow?.['参考模式'])) {
-    return `opencli awb video-create --modelGroupCode ${groupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
+    return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
   }
-  return `opencli awb video-create --modelGroupCode ${groupCode} --frameFile ./frame.webp --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
+  return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --frameFile ./frame.webp --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
 }
 
 function filterModelRows(rows, kwargs = {}) {
@@ -3347,8 +3347,8 @@ function rewriteAwbErrorMessage(error, context = {}) {
       '项目组积分不足。',
       '这不是团队总积分不足，而是当前项目组可用积分为 0 或已耗尽。',
       projectHint,
-      '先执行 `opencli awb points -f json` 或 `opencli awb project-group-current -f json` 查看当前项目组积分。',
-      '如果只是切错项目组，执行 `opencli awb project-groups` 后再 `opencli awb project-group-select --projectGroupNo <id>`。',
+      `先执行 ${runtimeCommandPrefix()} points -f json 或 ${runtimeCommandPrefix()} project-group-current -f json 查看当前项目组积分。`,
+      `如果只是切错项目组，执行 ${runtimeCommandPrefix()} project-groups 后再 ${runtimeCommandPrefix()} project-group-select --projectGroupNo <id>。`,
       '如果该项目组本身没有额度，需在平台给项目组分配积分上限，或新建带积分的项目组。',
     ].join('\n');
   }
@@ -3438,7 +3438,7 @@ async function resolveImagePromptParams(kwargs) {
   }
   if (unsupportedRefs.length) {
     throw new Error(
-      `${model.modelName ?? model.modelCode} 当前不支持这些参考参数：${unsupportedRefs.join(', ')}。请先执行 \`opencli awb model-options --modelGroupCode ${model.modelGroupCode}\` 确认该模型真实支持的参考类型。`,
+      `${model.modelName ?? model.modelCode} 当前不支持这些参考参数：${unsupportedRefs.join(', ')}。请先执行 \`${runtimeCommandPrefix()} model-options --modelGroupCode ${model.modelGroupCode}\` 确认该模型真实支持的参考类型。`,
     );
   }
   return {
@@ -4073,10 +4073,10 @@ async function resolveVideoPromptParams(kwargs) {
   const optionDefs = await validateModelPromptParams('video', resolvedKwargs, promptParams, validationSource);
   const allowedParamKeys = new Set(optionDefs.map((item) => item?.paramKey).filter(Boolean));
   if (hasReferenceMode && !allowedParamKeys.has('multi_param')) {
-    throw new Error(`${model.modelName ?? model.modelCode} 当前不支持参考生视频（multi_param）模式。请先执行 \`opencli awb model-options --modelGroupCode ${model.modelGroupCode}\` 确认该模型支持的输入方式。`);
+    throw new Error(`${model.modelName ?? model.modelCode} 当前不支持参考生视频（multi_param）模式。请先执行 \`${runtimeCommandPrefix()} model-options --modelGroupCode ${model.modelGroupCode}\` 确认该模型支持的输入方式。`);
   }
   if (generatedMode === 'multi_prompt' && !allowedParamKeys.has('multi_prompt')) {
-    throw new Error(`${model.modelName ?? model.modelCode} 当前不支持故事板（multi_prompt）模式。请先执行 \`opencli awb model-options --modelGroupCode ${model.modelGroupCode}\` 确认该模型支持的输入方式。`);
+    throw new Error(`${model.modelName ?? model.modelCode} 当前不支持故事板（multi_prompt）模式。请先执行 \`${runtimeCommandPrefix()} model-options --modelGroupCode ${model.modelGroupCode}\` 确认该模型支持的输入方式。`);
   }
   const uploads = [
     ...frames.map((item) => item.upload).filter(Boolean),
@@ -4272,7 +4272,7 @@ function printPointEstimate(kindLabel, pointCost, snapshot) {
     pointEstimate.projectPointRemainingAfter < 0
   ) {
     lines.push(
-      `[AWB] 当前项目组余额不足以执行本次${kindLabel}，建议先执行: opencli awb project-group-update --point ${Math.max(Number(pointEstimate.projectPointMax ?? 0), Number(pointEstimate.pointCost))}`,
+      `[AWB] 当前项目组余额不足以执行本次${kindLabel}，建议先执行: ${runtimeCommandPrefix()} project-group-update --point ${Math.max(Number(pointEstimate.projectPointMax ?? 0), Number(pointEstimate.pointCost))}`,
     );
   }
   printRuntimeNote(lines);
@@ -4336,8 +4336,8 @@ async function createImageTask(kwargs) {
       ...(resolvedTask ?? {}),
       nextCommand:
         resolvedTask?.taskId
-          ? `opencli awb task-wait --taskId ${resolvedTask.taskId} --taskType IMAGE_CREATE --projectGroupNo ${projectGroupNo}`
-          : `opencli awb tasks --taskType IMAGE_CREATE --projectGroupNo ${projectGroupNo} -f json`,
+          ? `${runtimeCommandPrefix()} task-wait --taskId ${resolvedTask.taskId} --taskType IMAGE_CREATE --projectGroupNo ${projectGroupNo}`
+          : `${runtimeCommandPrefix()} tasks --taskType IMAGE_CREATE --projectGroupNo ${projectGroupNo} -f json`,
     };
     if (resolvedTask?.taskId) {
       return maybeWaitCreatedTask('IMAGE_CREATE', result, kwargs);
@@ -4432,8 +4432,8 @@ async function createVideoTask(kwargs) {
       ...(resolvedTask ?? {}),
       nextCommand:
         resolvedTask?.taskId
-          ? `opencli awb task-wait --taskId ${resolvedTask.taskId} --taskType VIDEO_GROUP --projectGroupNo ${projectGroupNo}`
-          : `opencli awb tasks --taskType VIDEO_GROUP --projectGroupNo ${projectGroupNo} -f json`,
+          ? `${runtimeCommandPrefix()} task-wait --taskId ${resolvedTask.taskId} --taskType VIDEO_GROUP --projectGroupNo ${projectGroupNo}`
+          : `${runtimeCommandPrefix()} tasks --taskType VIDEO_GROUP --projectGroupNo ${projectGroupNo} -f json`,
     };
     if (resolvedTask?.taskId) {
       return maybeWaitCreatedTask('VIDEO_GROUP', result, kwargs);
@@ -4532,7 +4532,7 @@ async function maybeWaitCreatedTask(taskType, createResult, kwargs) {
     ...waited,
     submitted: true,
     nextCommand: waited.timedOut
-      ? `opencli awb task-wait --taskId ${createResult.taskId} --taskType ${taskType} --projectGroupNo ${createResult.projectGroupNo ?? kwargs.projectGroupNo ?? '<projectGroupNo>'}`
+      ? `${runtimeCommandPrefix()} task-wait --taskId ${createResult.taskId} --taskType ${taskType} --projectGroupNo ${createResult.projectGroupNo ?? kwargs.projectGroupNo ?? '<projectGroupNo>'}`
       : null,
   };
 }
@@ -4677,7 +4677,7 @@ function printModelListHint(kind, rows) {
   }
 
   const modelOptionsCmd =
-    `opencli awb model-options --modelGroupCode ${first.modelGroupCode}`;
+    `${runtimeCommandPrefix()} model-options --modelGroupCode ${first.modelGroupCode}`;
   const previewCmd = buildModelPreviewCommand(kind, first);
 
   const lines = [];
@@ -4694,31 +4694,31 @@ function buildModelModeExamples(kind, modelRow, rowByKey = new Map()) {
   const examples = [];
 
   if (kind === 'image') {
-    examples.push(`基础预演: opencli awb image-create --modelGroupCode ${modelGroupCode} --prompt "一只小狗" --quality <quality> --ratio <ratio> --generateNum 1 --dryRun true`);
+    examples.push(`基础预演: ${runtimeCommandPrefix()} image-create --modelGroupCode ${modelGroupCode} --prompt "一只小狗" --quality <quality> --ratio <ratio> --generateNum 1 --dryRun true`);
     if (String(modelRow?.refFeature ?? '').includes('iref')) {
-      examples.push(`参考图预演: opencli awb image-create --modelGroupCode ${modelGroupCode} --prompt "参考图里的角色在雨夜奔跑" --quality <quality> --ratio <ratio> --generateNum 1 --irefFiles "./a.webp" --dryRun true`);
+      examples.push(`参考图预演: ${runtimeCommandPrefix()} image-create --modelGroupCode ${modelGroupCode} --prompt "参考图里的角色在雨夜奔跑" --quality <quality> --ratio <ratio> --generateNum 1 --irefFiles "./a.webp" --dryRun true`);
     }
     return examples;
   }
 
   if (videoModelSupportsPromptOnly(modelRow)) {
-    examples.push(`纯提示词预演: opencli awb video-create --modelGroupCode ${modelGroupCode} --prompt "雨夜街头，人物缓慢走向镜头，电影感" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
+    examples.push(`纯提示词预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "雨夜街头，人物缓慢走向镜头，电影感" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
   }
   if (rowByKey.get('frames')) {
-    examples.push(`首尾帧预演: opencli awb video-create --modelGroupCode ${modelGroupCode} --frameFile ./frame.webp --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
+    examples.push(`首尾帧预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --frameFile ./frame.webp --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
   }
   if (rowByKey.get('multi_param')) {
     const refFeature = String(modelRow?.['参考模式'] ?? modelRow?.refFeature ?? '');
     if (refFeature.includes('音频')) {
-      examples.push(`多参考预演: opencli awb video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 对镜说话" --refImageFiles "角色A=./char.webp" --refAudioFiles "角色A=./voice.mp3" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
+      examples.push(`多参考预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 对镜说话" --refImageFiles "角色A=./char.webp" --refAudioFiles "角色A=./voice.mp3" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
     } else if (refFeature.includes('视频')) {
-      examples.push(`多参考预演: opencli awb video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --refVideoFiles "动作=./motion.mp4" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
+      examples.push(`多参考预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --refVideoFiles "动作=./motion.mp4" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
     } else {
-      examples.push(`参考图预演: opencli awb video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
+      examples.push(`参考图预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
     }
   }
   if (rowByKey.get('multi_prompt')) {
-    examples.push(`故事板预演: opencli awb video-create --modelGroupCode ${modelGroupCode} --storyboardPrompts "镜头1：城市远景||镜头2：人物走近镜头" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
+    examples.push(`故事板预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --storyboardPrompts "镜头1：城市远景||镜头2：人物走近镜头" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
   }
 
   return examples;
@@ -5271,7 +5271,7 @@ cli({
     const auth = await loadAuth();
     const tempToken = kwargs.tempToken || auth?.tempToken;
     if (!tempToken) {
-      throw new Error('No temp token found. Use `opencli awb login-qr` first and wait for `needBind`.');
+      throw new Error(`No temp token found. Use \`${runtimeCommandPrefix()} login-qr\` first and wait for \`needBind\`.`);
     }
     if (toBool(kwargs.dryRun)) {
       return presentLoginResult({
@@ -5664,7 +5664,7 @@ cli({
   func: async (_page, kwargs) => {
     const packageNo = String(kwargs.packageNo || '').trim();
     if (!packageNo) {
-      throw new Error('缺少 `packageNo`。请先执行 `opencli awb point-packages` 查看套餐编号。');
+      throw new Error(`缺少 packageNo。请先执行 ${runtimeCommandPrefix()} point-packages 查看套餐编号。`);
     }
     if (toBool(kwargs.dryRun)) {
       return {
@@ -5687,7 +5687,7 @@ cli({
       ...(rechargeNo ? [`[AWB] rechargeNo: ${rechargeNo}`] : []),
       ...(expireTime ? [`[AWB] 订单过期时间: ${expireTime}`] : []),
       ...(payUrl ? [`[AWB] 支付链接: ${payUrl}`] : []),
-      ...(rechargeNo ? [`[AWB] 可用以下命令查询支付状态: opencli awb point-pay-status --rechargeNo ${rechargeNo}`] : []),
+      ...(rechargeNo ? [`[AWB] 可用以下命令查询支付状态: ${runtimeCommandPrefix()} point-pay-status --rechargeNo ${rechargeNo}`] : []),
     ]);
 
     if (payUrl) {
@@ -6457,7 +6457,7 @@ cli({
         '- 或传参考生视频：`--refImageFiles` / `--refImageUrls` / `--refSubjects` / `--refVideoFiles` / `--refAudioFiles`',
         '- 或传故事板：`--storyboardPrompts "镜头1：城市远景||镜头2：人物走近镜头"`',
         '- 或直接用 `--promptParamsJson` 透传高级模式',
-        `可先查看模型参数: opencli awb model-options --modelCode ${kwargs.modelCode} --modelGroupCode ${kwargs.modelGroupCode}`,
+        `可先查看模型参数: ${runtimeCommandPrefix()} model-options --modelCode ${kwargs.modelCode} --modelGroupCode ${kwargs.modelGroupCode}`,
       ].join('\n'));
     }
     return presentTaskCreateResult(
