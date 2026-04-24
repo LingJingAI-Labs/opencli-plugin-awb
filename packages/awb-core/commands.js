@@ -483,16 +483,56 @@ function extractAssetId(payload) {
   return payload.id ?? payload.assetId ?? payload.data?.id ?? payload.data?.assetId ?? null;
 }
 
-function buildSubjectGroupName(kwargs) {
+function normalizePublishCode(value) {
+  const text = trimToNull(value);
+  if (!text) return null;
+  const normalized = text.replace(/[^0-9A-Za-z_-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  return normalized || null;
+}
+
+function shouldUseSafeSubjectNaming(kwargs, defaultValue = false) {
+  if (kwargs?.safePublishNaming == null || kwargs?.safePublishNaming === '') return defaultValue;
+  return toBool(kwargs.safePublishNaming);
+}
+
+function buildAutoSubjectPublishCode(kwargs) {
+  const projectName = trimToNull(kwargs?.projectName) ?? 'default';
+  const name = trimToNull(kwargs?.name) ?? 'subject';
+  const stateKey = trimToNull(kwargs?.stateKey) ?? 'default';
+  const digest = crypto.createHash('sha1').update(`${projectName}|${name}|${stateKey}`).digest('hex').slice(0, 8);
+  return `subj-${digest}`;
+}
+
+function resolveSubjectPublishLabel(kwargs, defaultSafeNaming = false) {
+  const override = normalizePublishCode(kwargs?.publishCode);
+  if (override) return override;
+  if (shouldUseSafeSubjectNaming(kwargs, defaultSafeNaming)) {
+    return buildAutoSubjectPublishCode(kwargs);
+  }
+  return trimToNull(kwargs?.name) ?? 'subject';
+}
+
+function buildSubjectGroupDescription(kwargs, defaultSafeNaming = false) {
+  const override = trimToNull(kwargs?.description);
+  if (override) return override;
+  const stateKey = trimToNull(kwargs?.stateKey) ?? 'default';
+  const publishLabel = resolveSubjectPublishLabel(kwargs, defaultSafeNaming);
+  if (shouldUseSafeSubjectNaming(kwargs, defaultSafeNaming) || normalizePublishCode(kwargs?.publishCode)) {
+    return `主体素材组 ${publishLabel} [${stateKey}]`;
+  }
+  return `角色 ${trimToNull(kwargs?.name) ?? publishLabel} [${stateKey}] 的主体素材组`;
+}
+
+function buildSubjectGroupName(kwargs, options = {}) {
   const override = trimToNull(kwargs.groupName);
   if (override) return override;
   const projectName = trimToNull(kwargs.projectName);
-  const name = trimToNull(kwargs.name) ?? 'subject';
+  const publishLabel = resolveSubjectPublishLabel(kwargs, options.defaultSafeNaming ?? false);
   const stateKey = trimToNull(kwargs.stateKey) ?? 'default';
   if (stateKey === 'default') {
-    return projectName ? `${projectName}-${name}` : name;
+    return projectName ? `${projectName}-${publishLabel}` : publishLabel;
   }
-  return projectName ? `${projectName}-${name}-${stateKey}` : `${name}-${stateKey}`;
+  return projectName ? `${projectName}-${publishLabel}-${stateKey}` : `${publishLabel}-${stateKey}`;
 }
 
 function buildSubjectAssetSpecs(kwargs) {
@@ -527,13 +567,13 @@ function buildSubjectAssetSpecs(kwargs) {
   ];
 }
 
-function buildSubjectAssetDisplayName(name, stateKey, label) {
-  const normalizedName = trimToNull(name) ?? 'subject';
+function buildSubjectAssetDisplayName(name, stateKey, label, options = {}) {
+  const publishLabel = resolveSubjectPublishLabel({ ...(options.kwargs ?? {}), name, stateKey }, options.defaultSafeNaming ?? false);
   const normalizedStateKey = trimToNull(stateKey) ?? 'default';
   if (normalizedStateKey === 'default') {
-    return `${normalizedName}-${label}`;
+    return `${publishLabel}-${label}`;
   }
-  return `${normalizedName}-${normalizedStateKey}-${label}`;
+  return `${publishLabel}-${normalizedStateKey}-${label}`;
 }
 
 async function resolveCurrentGroupId() {
@@ -631,10 +671,8 @@ async function listAssetGroups(options = {}) {
 }
 
 async function ensureAssetGroupForSubject(kwargs) {
-  const groupName = buildSubjectGroupName(kwargs);
-  const description =
-    trimToNull(kwargs.description) ??
-    `角色 ${trimToNull(kwargs.name) ?? groupName} [${trimToNull(kwargs.stateKey) ?? 'default'}] 的主体素材组`;
+  const groupName = buildSubjectGroupName(kwargs, { defaultSafeNaming: toBool(kwargs.defaultSafePublishNaming) });
+  const description = buildSubjectGroupDescription(kwargs, toBool(kwargs.defaultSafePublishNaming));
   const projectName = trimToNull(kwargs.projectName) ?? 'default';
   const existingRows = await listAssetGroups({ name: groupName, pageNumber: 1, pageSize: 20 }).catch(() => []);
   const existing = existingRows.find((item) => trimToNull(item?.name) === groupName) ?? null;
@@ -707,15 +745,14 @@ async function previewSubjectUpload(kwargs) {
     action: 'subject-upload',
     request: {
       name: trimToNull(kwargs.name),
-      groupName: buildSubjectGroupName(kwargs),
+      groupName: buildSubjectGroupName(kwargs, { defaultSafeNaming: toBool(kwargs.defaultSafePublishNaming) }),
       projectName: trimToNull(kwargs.projectName) ?? 'default',
       stateKey: trimToNull(kwargs.stateKey) ?? 'default',
       description:
-        trimToNull(kwargs.description) ??
-        `角色 ${trimToNull(kwargs.name) ?? buildSubjectGroupName(kwargs)} [${stateKey}] 的主体素材组`,
+        buildSubjectGroupDescription(kwargs, toBool(kwargs.defaultSafePublishNaming)),
       assets: assetSpecs.map((item) => ({
         label: item.label,
-        assetName: buildSubjectAssetDisplayName(kwargs.name, stateKey, item.label),
+        assetName: buildSubjectAssetDisplayName(kwargs.name, stateKey, item.label, { kwargs, defaultSafeNaming: toBool(kwargs.defaultSafePublishNaming) }),
         file: item.file ?? null,
         url: item.url ?? null,
         assetPath: item.file ? `material/assets/${path.basename(item.file)}` : normalizeCosAssetPath(item.url),
@@ -727,6 +764,7 @@ async function previewSubjectUpload(kwargs) {
         .map((item) => item.file)
         .filter(Boolean),
     ),
+    publishLabel: resolveSubjectPublishLabel(kwargs, toBool(kwargs.defaultSafePublishNaming)),
     nextRefSubject: trimToNull(kwargs.name) ? `${trimToNull(kwargs.name)}=<subjectId>` : '<name>=<subjectId>',
   };
 }
@@ -743,7 +781,7 @@ async function uploadSubjectAssets(kwargs) {
     throw new Error('缺少主参考图。请传 `--primaryFile` 或 `--primaryUrl`。');
   }
   printRuntimeNote(['[AWB] 正在准备主体素材组并上传主体图片...']);
-  const group = await ensureAssetGroupForSubject(kwargs);
+  const group = await ensureAssetGroupForSubject(kwargs, { defaultSafeNaming: toBool(kwargs.defaultSafePublishNaming) });
   const currentGroupId = await resolveCurrentGroupId();
   if (!group.groupId) {
     throw new Error('创建或查询主体素材组失败，未拿到 groupId。');
@@ -755,6 +793,7 @@ async function uploadSubjectAssets(kwargs) {
     groupName: group.groupName,
     projectName: group.projectName,
     stateKey,
+    publishLabel: resolveSubjectPublishLabel(kwargs, toBool(kwargs.defaultSafePublishNaming)),
     reusedGroup: group.reused,
     subjectId: null,
     threeViewId: null,
@@ -775,7 +814,7 @@ async function uploadSubjectAssets(kwargs) {
     const created = await createSubjectAssetRecord({
       groupId: group.groupId,
       assetPath,
-      name: buildSubjectAssetDisplayName(name, stateKey, spec.label),
+      name: buildSubjectAssetDisplayName(name, stateKey, spec.label, { kwargs, defaultSafeNaming: toBool(kwargs.defaultSafePublishNaming) }),
       platform: kwargs.platform,
     }).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -956,6 +995,67 @@ function parseStoryboardPromptsArg(value) {
       };
     })
     .filter(Boolean);
+}
+
+function normalizeStoryboardPromptsForPromptParams(rows, generatedTime) {
+  const items = rows.map((item, index) => ({
+    ...item,
+    index: toNumberOrNull(item?.index) ?? index + 1,
+  }));
+  if (!items.length) return items;
+
+  const totalDuration = toNumberOrNull(generatedTime);
+  const missingDurationItems = items.filter((item) => item.duration == null || item.duration === '');
+
+  if (missingDurationItems.length && totalDuration != null) {
+    const explicitDurationTotal = items.reduce((sum, item) => {
+      if (item.duration == null || item.duration === '') return sum;
+      const duration = toNumberOrNull(item.duration);
+      if (duration == null || duration <= 0) {
+        throw new Error('故事板分镜 duration 必须是正数，单位为秒。');
+      }
+      return sum + duration;
+    }, 0);
+    const remainingDuration = totalDuration - explicitDurationTotal;
+    if (remainingDuration <= 0) {
+      throw new Error(`故事板分镜 duration 总和必须等于 generatedTime=${totalDuration} 秒。`);
+    }
+    if (remainingDuration < missingDurationItems.length) {
+      throw new Error(`故事板总时长 ${totalDuration} 秒不足以分配给 ${missingDurationItems.length} 个未设置 duration 的分镜。`);
+    }
+
+    const baseDuration = Math.floor(remainingDuration / missingDurationItems.length);
+    let remainder = Math.round(remainingDuration - baseDuration * missingDurationItems.length);
+    for (const item of missingDurationItems) {
+      item.duration = baseDuration + (remainder > 0 ? 1 : 0);
+      remainder -= 1;
+    }
+  }
+
+  let hasAllDurations = true;
+  const normalizedItems = items.map((item) => {
+    if (item.duration == null || item.duration === '') {
+      hasAllDurations = false;
+      return item;
+    }
+    const duration = toNumberOrNull(item.duration);
+    if (duration == null || duration <= 0) {
+      throw new Error('故事板分镜 duration 必须是正数，单位为秒。');
+    }
+    return {
+      ...item,
+      duration,
+    };
+  });
+
+  if (hasAllDurations && totalDuration != null) {
+    const durationTotal = normalizedItems.reduce((sum, item) => sum + (toNumberOrNull(item.duration) ?? 0), 0);
+    if (Math.abs(durationTotal - totalDuration) > 1e-9) {
+      throw new Error(`故事板分镜 duration 总和必须等于 generatedTime=${totalDuration} 秒，当前为 ${durationTotal} 秒。`);
+    }
+  }
+
+  return normalizedItems;
 }
 
 function trimToNull(value) {
@@ -3237,11 +3337,45 @@ function taskStatusLabel(value) {
   }[normalized] ?? value;
 }
 
+function buildUploadReuseHint(item) {
+  const backendPath = trimToNull(item?.backendPath);
+  if (!backendPath) return null;
+  const sceneType = trimToNull(item?.sceneType);
+  const mimeType = String(item?.mimeType ?? '').toLowerCase();
+  const stem = trimToNull(path.parse(String(item?.fileName ?? '')).name)?.replace(/[^0-9A-Za-z_\-一-龥]+/g, '_') || '素材A';
+
+  if (sceneType === TASK_UPLOAD_SCENE.IMAGE_CREATE && mimeType.startsWith('image/')) {
+    return `--iref "${backendPath}"`;
+  }
+  if (sceneType === TASK_UPLOAD_SCENE.VIDEO_CREATE) {
+    if (mimeType.startsWith('image/')) return `--refImageUrls "${stem}=${backendPath}"`;
+    if (mimeType.startsWith('video/')) return `--refVideoUrls "${stem}=${backendPath}"`;
+    if (mimeType.startsWith('audio/')) return `--refAudioUrls "${stem}=${backendPath}"`;
+  }
+  return backendPath;
+}
+
+function buildUploadSubjectRegisterHint(item) {
+  const backendPath = trimToNull(item?.backendPath);
+  if (!backendPath) return null;
+  const sceneType = trimToNull(item?.sceneType);
+  const mimeType = String(item?.mimeType ?? '').toLowerCase();
+  if (sceneType !== TASK_UPLOAD_SCENE.VIDEO_CREATE || !mimeType.startsWith('image/')) return null;
+  return `subject-upload --name <角色名> --primaryUrl "${backendPath}"`;
+}
+
 function presentUploadRows(rows) {
-  return withAliasesRows(rows, {
+  return withAliasesRows(rows.map((item) => ({
+    ...item,
+    reuseHint: buildUploadReuseHint(item),
+    subjectRegisterHint: buildUploadSubjectRegisterHint(item),
+  })), {
     fileName: '文件名',
     sceneType: '上传场景',
     backendPath: '素材路径',
+    groupId: '素材组ID',
+    reuseHint: '复用写法',
+    subjectRegisterHint: '主体注册写法',
     width: '宽',
     height: '高',
   });
@@ -3252,6 +3386,7 @@ function presentSubjectUploadResult(result) {
     name: '主体名称',
     groupId: '素材组ID',
     groupName: '素材组名称',
+    publishLabel: '发布标识',
     subjectId: '主体ID',
     nextRefSubject: '引用写法',
     reusedGroup: '复用素材组',
@@ -3337,6 +3472,19 @@ function presentBatchCreateRows(rows) {
   );
 }
 
+function presentSubjectBatchRows(rows) {
+  return withAliasesRows(rows, {
+    inputIndex: '序号',
+    name: '主体名称',
+    publishLabel: '发布标识',
+    subjectId: '主体ID',
+    nextRefSubject: '引用写法',
+    groupId: '素材组ID',
+    reusedGroup: '复用素材组',
+    error: '错误',
+  });
+}
+
 function rewriteAwbErrorMessage(error, context = {}) {
   const message = error instanceof Error ? error.message : String(error);
   if (/项目组积分不足/.test(message)) {
@@ -3371,6 +3519,25 @@ async function uploadImageReferenceFiles(kwargs) {
 
 function buildDryRunBackendPath(filePath, sceneType) {
   return `/${sceneType}/__dry_run__/${path.basename(String(filePath)).replace(/[^0-9A-Za-z._-]+/g, '-')}`;
+}
+
+function validateKnownVideoModelQuirks(model, generatedMode, generatedTime, hasReferenceMode) {
+  const normalizedGeneratedTime = toNumberOrNull(generatedTime);
+  if (!hasReferenceMode || generatedMode !== 'multi_param' || normalizedGeneratedTime == null) return;
+
+  const modelGroupCode = trimToNull(model?.modelGroupCode);
+  const klingReferenceGroups = new Set([
+    'KeLing3_VideoCreate_Group',
+  ]);
+
+  if (klingReferenceGroups.has(modelGroupCode) && normalizedGeneratedTime === 15) {
+    throw new Error([
+      `${model?.modelName ?? modelGroupCode} 当前参考生视频（multi_param）模式实测不支持 15 秒。`,
+      '截至 2026-04-24，CLI 已确认可灵 3.0（非 Omni）参考生视频 10 秒可成功创建，15 秒会被后端拒绝为 invalid duration。',
+      '请先改用 `--generatedTime 10`；如果你要做 15 秒，优先改走故事板（multi_prompt）或首帧模式。',
+      `可先执行 ${runtimeCommandPrefix()} video-fee --modelGroupCode ${modelGroupCode} --prompt "@角色A 在镜头前说话" --refImageFiles "角色A=./char.webp" --quality 720 --generatedTime 10 --ratio 9:16 -f json`,
+    ].join('\n'));
+  }
 }
 
 async function resolveImagePromptParams(kwargs) {
@@ -3862,7 +4029,10 @@ async function resolveVideoPromptParams(kwargs) {
   };
   const generatedTime = resolvedKwargs.generatedTime == null || resolvedKwargs.generatedTime === '' ? '' : String(resolvedKwargs.generatedTime);
   const referenceInputs = await resolveVideoReferenceInputs(resolvedKwargs, resolvedKwargs);
-  const storyboardPrompts = parseStoryboardPromptsArg(resolvedKwargs.storyboardPrompts);
+  const storyboardPrompts = normalizeStoryboardPromptsForPromptParams(
+    parseStoryboardPromptsArg(resolvedKwargs.storyboardPrompts),
+    generatedTime,
+  );
   const hasReferenceMode = referenceInputs.imageRefs.length > 0
     || referenceInputs.videoRefs.length > 0
     || referenceInputs.audioRefs.length > 0
@@ -3914,7 +4084,7 @@ async function resolveVideoPromptParams(kwargs) {
     const frameEntries = [];
     if (resolvedKwargs.frameText || resolvedKwargs.frameUrl || resolvedKwargs.frameFile) {
       frameEntries.push({
-        text: resolvedKwargs.frameText || '',
+        text: resolvedKwargs.frameText || resolvedKwargs.prompt || '',
         url: resolvedKwargs.frameUrl || '',
         file: resolvedKwargs.frameFile || null,
         time: resolvedKwargs.frameTime || generatedTime,
@@ -4022,6 +4192,7 @@ async function resolveVideoPromptParams(kwargs) {
   const generatedMode =
     trimToNull(resolvedKwargs.generatedMode) ??
     (hasStoryboardMode ? 'multi_prompt' : hasReferenceMode ? 'multi_param' : 'frames');
+  validateKnownVideoModelQuirks(model, generatedMode, generatedTime, hasReferenceMode);
   const explicitAudio =
     resolvedKwargs.audio == null || String(resolvedKwargs.audio).trim() === ''
       ? null
@@ -4557,7 +4728,11 @@ async function loadBatchItems(inputFile, mode) {
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => (mode === 'image' ? { prompt: line } : { prompt: line }));
+    .map((line) => {
+      if (mode === 'image') return { prompt: line };
+      if (mode === 'subject') return { name: line };
+      return { prompt: line };
+    });
 }
 
 async function runConcurrent(items, limit, worker) {
@@ -5986,9 +6161,15 @@ cli({
   site: SITE,
   name: 'upload-files',
   description: commandHelp('上传文件到素材桶', {
+    quickStart: [
+      '这条命令只负责把素材放进 AWB 素材池，不负责火山加白/外部发布。',
+      '生图复用看 `素材路径`；生视频复用优先看 `复用写法`（通常是 `--refImageUrls` / `--refVideoUrls`）。',
+      '如果是要给 Seedance 2.0 / Grok / 真人主体参考生视频，图片上传后优先继续看 `主体注册写法`，把 backendPath 注册成 `subjectId` 再走 `--refSubjects`。',
+    ],
     examples: [
       'opencli awb upload-files --files ./ref.png',
       'opencli awb upload-files --files ./frame.webp --sceneType material-video-create',
+      'opencli awb upload-files --files ./char.webp,./scene.webp --sceneType material-video-create -f json',
     ],
     dryRun: true,
   }),
@@ -6002,7 +6183,7 @@ cli({
     },
     DRY_RUN_ARG,
   ],
-  columns: ['文件名', '上传场景', '素材路径', '宽', '高'],
+  columns: ['文件名', '上传场景', '素材路径', '素材组ID', '复用写法', '主体注册写法', '宽', '高'],
   func: async (_page, kwargs) => {
     const sceneType = kwargs.sceneType || TASK_UPLOAD_SCENE.IMAGE_CREATE;
     const allowedSceneTypes = [...new Set(Object.values(TASK_UPLOAD_SCENE))];
@@ -6010,7 +6191,7 @@ cli({
       throw new Error(`不支持的 sceneType: ${sceneType}。可选值: ${allowedSceneTypes.join(', ')}`);
     }
     if (toBool(kwargs.dryRun)) {
-      return presentUploadRows([await previewUploadFiles({ ...kwargs, sceneType })])[0];
+      return presentUploadRows(await previewUploadFiles({ ...kwargs, sceneType }));
     }
     const rows = await uploadLocalFiles(parseListArg(kwargs.files), {
       sceneType,
@@ -6024,54 +6205,310 @@ cli({
       height: item.height,
       backendPath: item.backendPath,
       signedUrl: item.signedUrl,
+      publicUrl: item.publicUrl,
       objectName: item.objectName,
+      groupId: item.groupId,
       raw: JSON.stringify(item),
     })));
   },
 });
+
+const SUBJECT_UPLOAD_ARGS = [
+  { name: 'name', required: true, help: '角色/主体名称。示例: 小莉' },
+  { name: 'projectName', default: 'default', help: '素材组项目名。默认 default；会参与组名拼接。' },
+  { name: 'stateKey', default: 'default', help: '状态名。默认 default；非 default 时组名会追加该状态。' },
+  { name: 'groupName', help: '直接指定素材组名；传了就不再按 projectName/name/stateKey 自动拼接。' },
+  { name: 'description', help: '素材组描述；不传则自动生成。敏感人设建议改成中性描述。' },
+  { name: 'publishCode', help: '发布用安全代码名。只影响素材组名/素材名，不影响 `--refSubjects` 里的引用名。示例: actor_001' },
+  { name: 'safePublishNaming', help: '是否自动用安全代码名代替真实角色名生成素材组名/素材名。示例: true / false。' },
+  { name: 'primaryFile', help: '主参考图本地路径。建议传三视图或最稳的人物主参考图；它的资产 ID 会作为 subjectId。' },
+  { name: 'primaryUrl', help: '已在 COS 上的主参考图 URL 或相对路径；不传本地文件时可用。' },
+  { name: 'threeViewFile', help: '兼容别名，等同于 `--primaryFile`。' },
+  { name: 'threeViewUrl', help: '兼容别名，等同于 `--primaryUrl`。' },
+  { name: 'faceFile', help: '正面图本地路径。可选。' },
+  { name: 'faceUrl', help: '正面图 URL 或相对路径。可选。' },
+  { name: 'sideFile', help: '侧面图本地路径。可选。' },
+  { name: 'sideUrl', help: '侧面图 URL 或相对路径。可选。' },
+  { name: 'backFile', help: '背面图本地路径。可选。' },
+  { name: 'backUrl', help: '背面图 URL 或相对路径。可选。' },
+  { name: 'platform', help: '可选平台字段；默认不传，沿用平台默认值。' },
+  DRY_RUN_ARG,
+];
+
+async function runSubjectUploadCommand(kwargs) {
+  await assertInternalViewer(kwargs);
+  return presentSubjectUploadResult(
+    toBool(kwargs.dryRun) ? await previewSubjectUpload(kwargs) : await uploadSubjectAssets(kwargs),
+  );
+}
 
 if (canUseInternalCommands) cli({
   site: SITE,
   name: 'subject-upload',
   description: commandHelp('上传真人/角色图片到主体素材组，返回可复用的 subjectId', {
     quickStart: [
-      '1. 用 `--primaryFile` 传主参考图；如果有正/侧/背面可一并补齐',
+      '1. 用 `--primaryFile` 传主参考图；如果已有 `upload-files` 返回的 backendPath，则改用 `--primaryUrl`',
       '2. 成功后记下返回的 `subjectId` 或 `nextRefSubject`',
       '3. 后续在支持主体引用的视频模型里，用 `--refSubjects "角色名=subjectId"` 引用，而不是继续直接传原图',
     ],
     examples: [
-      'opencli awb subject-upload --name 小莉 --primaryFile ./three-view.png --faceFile ./front.png --sideFile ./side.png --backFile ./back.png --projectName demo --dryRun true',
-      'opencli awb subject-upload --name 小莉 --primaryFile ./three-view.png --projectName demo -f json',
+      'opencli awb subject-upload --name 小莉 --primaryFile ./three-view.png --faceFile ./front.png --sideFile ./side.png --backFile ./back.png --projectName default --dryRun true',
+      'opencli awb subject-upload --name 小莉 --primaryUrl /material/video-create/xxx-char.webp -f json',
+      'opencli awb subject-upload --name 小莉 --primaryFile ./three-view.png -f json',
     ],
-    hint: '这条命令会按素材组逻辑把图片注册成可复用主体素材，并把主参考图的资产 ID 作为 `subjectId` 返回。后续如需主体引用，优先传 `--refSubjects`，比继续直接传原始图片更稳。',
+    hint: '这条命令会按素材组逻辑把图片注册成可复用主体素材，并把主参考图的资产 ID 作为 `subjectId` 返回。已有 backendPath 时优先用 `--primaryUrl` 直接注册，再把返回的 `nextRefSubject` 粘到 `--refSubjects`。',
+    dryRun: true,
+  }),
+  browser: false,
+  args: SUBJECT_UPLOAD_ARGS,
+  columns: ['主体名称', '素材组ID', '素材组名称', '主体ID', '引用写法', '复用素材组'],
+  func: async (_page, kwargs) => runSubjectUploadCommand({ ...kwargs, defaultSafePublishNaming: false }),
+});
+
+if (canUseInternalCommands) cli({
+  site: SITE,
+  name: 'subject-publish',
+  description: commandHelp('发布真人/角色图片为可复用主体资产，返回 Seedance/Grok 可直接使用的 subjectId', {
+    quickStart: [
+      '1. 本地真人图可直接用 `--primaryFile`；如果已经先 `upload-files`，就改用 `--primaryUrl`',
+      '1.1 默认会给素材组名/素材名生成安全代码，避免直接拿敏感人设词去碰审核；需要自定义时传 `--publishCode`。',
+      '2. 成功后直接复制返回的 `引用写法`（`nextRefSubject`）',
+      '3. 在 Seedance 2.0 / Grok 参考生视频里，用 `--refSubjects` 而不是 `--refImageUrls`',
+    ],
+    examples: [
+      'opencli awb subject-publish --name 小莉 --primaryFile ./front.webp -f json',
+      'opencli awb subject-publish --name 小莉 --primaryUrl /material/video-create/xxx-char.webp -f json',
+    ],
+    hint: '这是给真人主体参考生视频准备 `asset-xxx` 的首选命令。常见链路是：`upload-files --sceneType material-video-create` → `subject-publish --primaryUrl <backendPath>` → `video-create --refSubjects "角色=asset-xxx"`。',
+    dryRun: true,
+  }),
+  browser: false,
+  args: SUBJECT_UPLOAD_ARGS,
+  columns: ['主体名称', '素材组ID', '素材组名称', '主体ID', '引用写法', '复用素材组'],
+  func: async (_page, kwargs) => runSubjectUploadCommand({ ...kwargs, defaultSafePublishNaming: true }),
+});
+
+if (canUseInternalCommands) cli({
+  site: SITE,
+  name: 'subject-publish-batch',
+  description: commandHelp('批量发布真人/角色图片为可复用主体资产，返回可直接喂给 Seedance/Grok 的引用写法', {
+    examples: [
+      'opencli awb subject-publish-batch --inputFile ./subject-batch.json --dryRun true -f json',
+      'opencli awb subject-publish-batch --inputFile ./subject-batch.json --projectName default -f json',
+    ],
+    hint: '适合 agent / 沙箱断线场景：先批量把真人图或已上传 backendPath 注册成主体 asset id，再把返回的 `引用写法` 批量喂给 `video-create --refSubjects`。单条优先字段：`name`、`primaryFile` / `primaryUrl`，可选 `face*` / `side*` / `back*`。',
     dryRun: true,
   }),
   browser: false,
   args: [
-    { name: 'name', required: true, help: '角色/主体名称。示例: 小莉' },
-    { name: 'projectName', default: 'default', help: '素材组项目名。默认 default；会参与组名拼接。' },
-    { name: 'stateKey', default: 'default', help: '状态名。默认 default；非 default 时组名会追加该状态。' },
-    { name: 'groupName', help: '直接指定素材组名；传了就不再按 projectName/name/stateKey 自动拼接。' },
-    { name: 'description', help: '素材组描述；不传则按角色名和状态自动生成。' },
-    { name: 'primaryFile', help: '主参考图本地路径。建议传三视图或最稳的人物主参考图；它的资产 ID 会作为 subjectId。' },
-    { name: 'primaryUrl', help: '已在 COS 上的主参考图 URL 或相对路径；不传本地文件时可用。' },
-    { name: 'threeViewFile', help: '兼容别名，等同于 `--primaryFile`。' },
-    { name: 'threeViewUrl', help: '兼容别名，等同于 `--primaryUrl`。' },
-    { name: 'faceFile', help: '正面图本地路径。可选。' },
-    { name: 'faceUrl', help: '正面图 URL 或相对路径。可选。' },
-    { name: 'sideFile', help: '侧面图本地路径。可选。' },
-    { name: 'sideUrl', help: '侧面图 URL 或相对路径。可选。' },
-    { name: 'backFile', help: '背面图本地路径。可选。' },
-    { name: 'backUrl', help: '背面图 URL 或相对路径。可选。' },
-    { name: 'platform', help: '可选平台字段；默认不传，沿用平台默认值。' },
+    { name: 'inputFile', required: true, help: '输入文件：支持 JSON 数组、带 items 的 JSON、JSONL 或一行一个主体名。推荐 JSON / JSONL。' },
+    { name: 'concurrency', type: 'int', default: 1 },
+    { name: 'projectName', help: '默认素材组项目名；只在单条未提供时补上' },
+    { name: 'stateKey', help: '默认状态名；只在单条未提供时补上' },
+    { name: 'platform', help: '默认平台字段；只在单条未提供时补上' },
     DRY_RUN_ARG,
   ],
-  columns: ['主体名称', '素材组ID', '素材组名称', '主体ID', '引用写法', '复用素材组'],
+  columns: ['序号', '主体名称', '主体ID', '引用写法', '素材组ID', '复用素材组', '错误'],
   func: async (_page, kwargs) => {
     await assertInternalViewer(kwargs);
-    return presentSubjectUploadResult(
-      toBool(kwargs.dryRun) ? await previewSubjectUpload(kwargs) : await uploadSubjectAssets(kwargs),
-    );
+    const items = await loadBatchItems(kwargs.inputFile, 'subject');
+    const defaults = {
+      projectName: kwargs.projectName ?? null,
+      stateKey: kwargs.stateKey ?? null,
+      platform: kwargs.platform ?? null,
+      safePublishNaming: true,
+    };
+    const rows = await runConcurrent(items, kwargs.concurrency, async (item, index) => {
+      const merged = mergeBatchDefaults(defaults, item);
+      if (!merged.name) {
+        throw new Error('Each batch subject item must include `name`.');
+      }
+      if (!(merged.primaryFile || merged.primaryUrl || merged.threeViewFile || merged.threeViewUrl)) {
+        throw new Error('Each batch subject item must include `primaryFile` or `primaryUrl`.');
+      }
+      const result = toBool(kwargs.dryRun) ? await previewSubjectUpload(merged) : await uploadSubjectAssets(merged);
+      return {
+        inputIndex: index,
+        name: result.name ?? merged.name,
+        subjectId: result.subjectId ?? null,
+        nextRefSubject: result.nextRefSubject ?? null,
+        groupId: result.groupId ?? null,
+        publishLabel: result.publishLabel ?? null,
+        reusedGroup: result.reusedGroup ?? null,
+        error: null,
+        raw: JSON.stringify({ input: item, result }),
+      };
+    });
+    return presentSubjectBatchRows(rows);
+  },
+});
+
+async function resolveSubjectGroupTarget(kwargs = {}) {
+  const explicitGroupId = trimToNull(kwargs.groupId);
+  if (explicitGroupId) {
+    return {
+      groupId: explicitGroupId,
+      groupName: trimToNull(kwargs.groupName) ?? null,
+      detail: await apiFetch(`/api/material/asset-groups/${explicitGroupId}`, { method: 'GET' }),
+    };
+  }
+  const lookupGroupName = trimToNull(kwargs.groupName)
+    ?? buildSubjectGroupName(kwargs, { defaultSafeNaming: toBool(kwargs.defaultSafePublishNaming) });
+  if (!lookupGroupName) {
+    throw new Error('请至少提供 `--groupId`，或提供 `--groupName` / `--name` 让 CLI 推导素材组名。');
+  }
+  const rows = await listAssetGroups({ name: lookupGroupName, pageNumber: 1, pageSize: 20 }).catch(() => []);
+  const exact = rows.find((item) => trimToNull(item?.name) === lookupGroupName) ?? rows[0] ?? null;
+  if (!exact) {
+    throw new Error(`未找到主体素材组: ${lookupGroupName}`);
+  }
+  const groupId = exact.id ?? exact.groupId ?? null;
+  if (!groupId) {
+    throw new Error(`主体素材组 ${lookupGroupName} 缺少 groupId。`);
+  }
+  const detail = await apiFetch(`/api/material/asset-groups/${groupId}`, { method: 'GET' }).catch(() => exact);
+  return {
+    groupId,
+    groupName: lookupGroupName,
+    detail,
+  };
+}
+
+function presentSubjectStatus(result) {
+  return withAliases(result, {
+    groupId: '素材组ID',
+    groupName: '素材组名称',
+    description: '素材组描述',
+    projectName: '项目名',
+    platform: '平台',
+    usage: '用途',
+    groupSource: '来源',
+    createTime: '创建时间',
+    updateTime: '更新时间',
+    publishLabel: '发布标识',
+    publishState: '发布状态',
+    publishedAssetCount: '已发布资产数',
+    subjectId: '主体ID',
+    nextRefSubject: '引用写法',
+    publishedAssetNames: '已发布资产',
+  });
+}
+
+async function listThirdAssets(filters = {}) {
+  const payload = await apiFetch('/api/material/creation/thirdAsset/list', {
+    body: {
+      pageNumber: toInt(filters.pageNumber, 1),
+      pageSize: toInt(filters.pageSize, 100),
+      ...(trimToNull(filters.actorName) ? { actorName: trimToNull(filters.actorName) } : {}),
+      ...(trimToNull(filters.assetName) ? { assetName: trimToNull(filters.assetName) } : {}),
+    },
+  });
+  return Array.isArray(payload?.data) ? payload.data : [];
+}
+
+cli({
+  site: SITE,
+  name: 'subject-status',
+  description: commandHelp('查询主体素材组状态与可复用引用信息', {
+    examples: [
+      'opencli awb subject-status --groupId group-xxxxxxxx',
+      'opencli awb subject-status --name 小莉 --projectName default --safePublishNaming true',
+    ],
+    hint: '适合排查“加白不过审时该改什么”。`subject-status` 主要看素材组名称、描述、平台、更新时间；若你是走 `subject-publish` 默认安全命名，建议带上 `--safePublishNaming true` 或直接传 `--groupId`。',
+  }),
+  browser: false,
+  args: [
+    { name: 'groupId', help: '主体素材组 groupId；已知时优先传这个。' },
+    { name: 'groupName', help: '主体素材组名称；不知道 groupId 时可直接查这个。' },
+    { name: 'name', help: '主体引用名称；若不传 groupId/groupName，CLI 会按命名规则推导组名。' },
+    { name: 'projectName', default: 'default', help: '项目名；用于推导默认素材组名。' },
+    { name: 'stateKey', default: 'default', help: '状态名；用于推导默认素材组名。' },
+    { name: 'publishCode', help: '如果发布时用过安全代码名，可传它协助推导组名。' },
+    { name: 'safePublishNaming', help: '推导组名时是否按安全代码名规则计算。示例: true / false。' },
+    { name: 'subjectId', help: '可选：当前已拿到的主体ID。若传入，CLI 会顺带拼出引用写法。' },
+  ],
+  columns: ['素材组ID', '素材组名称', '素材组描述', '项目名', '平台', '用途', '来源', '创建时间', '更新时间', '发布标识', '发布状态', '已发布资产数', '主体ID', '引用写法'],
+  func: async (_page, kwargs) => {
+    const target = await resolveSubjectGroupTarget(kwargs);
+    const detail = target.detail ?? {};
+    const groupName = detail.name ?? target.groupName ?? null;
+    const thirdAssets = groupName ? await listThirdAssets({ actorName: groupName, pageSize: 100 }).catch(() => []) : [];
+    const primaryAsset = thirdAssets.find((item) => /三视图|primary/i.test(String(item?.assetName ?? ''))) ?? thirdAssets[0] ?? null;
+    const subjectId = trimToNull(kwargs.subjectId) ?? trimToNull(primaryAsset?.thirdAssetId) ?? null;
+    const aliasName = trimToNull(kwargs.name) ?? null;
+    return presentSubjectStatus({
+      groupId: detail.id ?? detail.groupId ?? target.groupId,
+      groupName,
+      description: detail.description ?? null,
+      projectName: detail.projectName ?? trimToNull(kwargs.projectName) ?? null,
+      platform: detail.platform ?? primaryAsset?.platform ?? null,
+      usage: detail.usage ?? null,
+      groupSource: detail.groupSource ?? null,
+      createTime: detail.createTime ?? null,
+      updateTime: detail.updateTime ?? null,
+      publishLabel: resolveSubjectPublishLabel(kwargs, toBool(kwargs.defaultSafePublishNaming)),
+      publishState: thirdAssets.length ? '已发布可引用' : '未查到已发布资产',
+      publishedAssetCount: thirdAssets.length,
+      subjectId,
+      nextRefSubject: aliasName && subjectId ? `${aliasName}=${subjectId}` : null,
+      publishedAssetNames: thirdAssets.map((item) => item?.assetName).filter(Boolean).join(' | ') || null,
+      raw: JSON.stringify({ group: detail, thirdAssets }),
+    });
+  },
+});
+
+cli({
+  site: SITE,
+  name: 'subject-group-update',
+  description: commandHelp('修改主体素材组名称或描述，适合加白不过审时快速调整文案', {
+    examples: [
+      'opencli awb subject-group-update --groupId group-xxxxxxxx --groupName subj-a1b2c3d4',
+      'opencli awb subject-group-update --groupId group-xxxxxxxx --description "主体素材组 subj-a1b2c3d4 [default]" --dryRun true -f json',
+    ],
+    hint: '如果审核对人设词敏感，优先把 `--groupName` 和 `--description` 改成中性代码化文案。更新后可重新走 `subject-publish` / `subject-publish-batch` 复投。',
+    dryRun: true,
+  }),
+  browser: false,
+  args: [
+    { name: 'groupId', required: true, help: '主体素材组 groupId。建议先从 `subject-publish` 返回里拿。' },
+    { name: 'groupName', help: '新的素材组名；建议用安全代码而不是敏感角色名。' },
+    { name: 'description', help: '新的素材组描述；建议用中性描述。' },
+    DRY_RUN_ARG,
+  ],
+  columns: ['素材组ID', '素材组名称', '素材组描述', '更新时间'],
+  func: async (_page, kwargs) => {
+    if (!trimToNull(kwargs.groupName) && !trimToNull(kwargs.description)) {
+      throw new Error('至少提供 `--groupName` 或 `--description` 之一。');
+    }
+    if (toBool(kwargs.dryRun)) {
+      return presentSubjectStatus({
+        groupId: kwargs.groupId,
+        groupName: trimToNull(kwargs.groupName) ?? null,
+        description: trimToNull(kwargs.description) ?? null,
+        updateTime: null,
+        raw: JSON.stringify({ dryRun: true, request: { groupId: kwargs.groupId, name: trimToNull(kwargs.groupName) ?? null, description: trimToNull(kwargs.description) ?? null } }),
+      });
+    }
+    await apiFetch(`/api/material/asset-groups/${kwargs.groupId}`, {
+      method: 'PUT',
+      body: {
+        ...(trimToNull(kwargs.groupName) ? { name: trimToNull(kwargs.groupName) } : {}),
+        ...(trimToNull(kwargs.description) ? { description: trimToNull(kwargs.description) } : {}),
+      },
+    });
+    const detail = await apiFetch(`/api/material/asset-groups/${kwargs.groupId}`, { method: 'GET' }).catch(() => ({}));
+    return presentSubjectStatus({
+      groupId: detail?.id ?? detail?.groupId ?? kwargs.groupId,
+      groupName: detail?.name ?? trimToNull(kwargs.groupName) ?? null,
+      description: detail?.description ?? trimToNull(kwargs.description) ?? null,
+      projectName: detail?.projectName ?? null,
+      platform: detail?.platform ?? null,
+      usage: detail?.usage ?? null,
+      groupSource: detail?.groupSource ?? null,
+      createTime: detail?.createTime ?? null,
+      updateTime: detail?.updateTime ?? null,
+      raw: JSON.stringify(detail),
+    });
   },
 });
 

@@ -82,7 +82,7 @@ The standalone CLI scaffold is already available in this repository:
 node packages/awb-cli/bin/awb.js --help
 ```
 
-The standalone npm package will later be published as `@lingjingai/awb-cli`.
+The standalone CLI is already published as `@lingjingai/awb-cli`.
 
 If the standalone CLI does not yet have its own local session, it reuses the existing AWB auth and project-group state to avoid duplicate login. Supported legacy paths include:
 

@@ -1,8 +1,8 @@
-# subject-upload — 完整流程
+# subject-publish / subject-upload — 完整流程
 
-`subject-upload` 把一个角色 / 真人登记为**可复用主体**，让后续视频命令用 `@角色名` + `--refSubjects "角色=asset-..."` 稳定引用，而不是每次重新传原图。
+`subject-publish` / `subject-upload` 把一个角色 / 真人登记为**可复用主体**，让后续视频命令用 `@角色名` + `--refSubjects "角色=asset-..."` 稳定引用，而不是每次重新传原图。它既可以吃本地文件，也可以直接吃 `upload-files` 产出的 backendPath。默认推荐 `subject-publish`，因为它会优先用安全代码名做发布名。
 
-> **仅内部员工可用**。普通用户用 [`upload-files`](../modules/upload.md) 即可。
+> **需有权限账号**。若当前账号可用，真人主体参考生视频优先走这条；无权限时再退回 [`upload-files`](../modules/upload.md) + `refImageUrls`。
 
 ## 1. 参数矩阵
 
@@ -25,7 +25,9 @@
 | `--projectName` | 素材组项目名，默认 `default` |
 | `--stateKey` | 状态名，默认 `default`；非 default 会追加到组名 |
 | `--groupName` | 直接指定素材组名；传了就忽略自动拼接 |
-| `--description` | 素材组描述；不传自动按角色名 + 状态生成 |
+| `--description` | 素材组描述；不传自动生成。敏感人设建议改成中性描述 |
+| `--publishCode` | 安全代码名；只影响素材组名/素材名，不影响 `--refSubjects` 里的引用名 |
+| `--safePublishNaming` | 是否自动用安全代码名代替真实名称；`subject-publish` 默认推荐开启 |
 | `--platform` | 可选平台字段，通常不传 |
 | `--dryRun true` | 干跑预览 |
 
@@ -116,4 +118,49 @@ NEXT_REF=$("$AWB_CMD" subject-upload --name 小莉 --primaryFile ./front.webp \
 - **`--groupName` 是逃生口**：想完全手控组名（比如跨项目共享一组）用它；一般别用，自动拼接够清晰。
 - **`--faceFile` / `--sideFile` / `--backFile` 能明显提升一致性**：视频里转镜、换角度时尤其有用；只传 `primaryFile` 时镜头一转人脸容易崩。
 - **已在 COS 的素材用 URL 版本**：避免重复上传；`primaryUrl` 可接平台内部 `/material/...` 或 `https://...` 完整 URL。
-- **错误"仅对内部员工开放"** 不是 bug：普通用户账号没权限，换 `upload-files` 走通用路径，或联系内部账号走 `subject-upload`。
+- **`subject-publish` / `subject-upload` 是真人主体最佳路径（前提是账号有权限）**：它最终返回 `subjectId` / `nextRefSubject`，最适合 Seedance 2.0 / Grok 这类 `--refSubjects` 工作流。若账号无权限，再退回普通 `upload-files` + `refImageUrls`。
+
+## 7. 批量主体注册（agent 推荐）
+
+输入文件支持 JSON 数组 / `{"items": [...]}` / JSONL。每条至少给：
+
+```json
+[
+  {"name":"小莉","primaryUrl":"/material/video-create/xxx-char.webp"},
+  {"name":"小梅","primaryFile":"./mei-front.webp"}
+]
+```
+
+```bash
+"$AWB_CMD" subject-publish-batch --inputFile ./subject-batch.json --dryRun true -f json
+"$AWB_CMD" subject-publish-batch --inputFile ./subject-batch.json -f json
+```
+
+返回列会包含 `主体名称 / 主体ID / 引用写法 / 素材组ID / 复用素材组 / 错误`。
+
+## 8. 审核不过时怎么调
+
+如果像“老鸨”这类人设词容易卡审核，优先不要直接把人设词放进素材组名/素材名。推荐：
+
+```bash
+# 先查当前主体素材组和已发布资产
+"$AWB_CMD" subject-status --groupId group-xxxxxxxx
+
+# 再改成代码化组名 + 中性描述
+"$AWB_CMD" subject-group-update --groupId group-xxxxxxxx \
+  --groupName subj-a1b2c3d4 \
+  --description "主体素材组 subj-a1b2c3d4 [default]"
+```
+
+如果一开始就知道设定敏感，创建时直接走：
+
+```bash
+"$AWB_CMD" subject-publish --name 老鸨 \
+  --publishCode actor_001 \
+  --primaryUrl /material/video-create/xxx.webp -f json
+```
+
+这样 `--refSubjects` 仍然可以继续用真实引用名（如 `老鸨=asset-xxx`），但平台里的组名/素材名会更中性。
+
+
+> `subject-status` 现在会额外查询 `/api/material/creation/thirdAsset/list`：如果能查到已发布资产，会返回 `发布状态=已发布可引用`、`已发布资产数` 和推导出的 `主体ID`。当前平台没有显式的“审核中/审核拒绝”字段，所以 CLI 只能区分“已发布可引用” vs “未查到已发布资产”。

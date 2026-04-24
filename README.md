@@ -82,7 +82,7 @@ opencli awb --help
 node packages/awb-cli/bin/awb.js --help
 ```
 
-后续独立 npm 包会发布为 `@lingjingai/awb-cli`。
+独立 CLI 已发布为 `@lingjingai/awb-cli`。
 
 如果独立 CLI 本地还没有自己的登录态，它会优先沿用现有 AWB 认证和项目组状态，避免重复登录。兼容读取的旧路径包括：
 

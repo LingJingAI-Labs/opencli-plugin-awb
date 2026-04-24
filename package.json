@@ -1,6 +1,6 @@
 {
   "name": "anime-workbench-cli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "LingJing AI Anime Workbench CLI monorepo with standalone CLI, opencli frontend, shared core, and skills",
   "license": "MIT",
   "type": "module",
@@ -32,7 +32,11 @@
     "index.js",
     "install.mjs",
     "packages/awb-core",
-    "README.md"
+    "README.md",
+    "packages/awb-cli",
+    "skills/awb",
+    "README.en.md",
+    "CHANGELOG.md"
   ],
   "dependencies": {
     "qrcode": "^1.5.4"

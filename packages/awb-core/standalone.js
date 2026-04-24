@@ -39,7 +39,7 @@ function getAwbCommandGroup(commandName) {
     '团队与项目': new Set(['teams', 'team-select', 'project-groups', 'project-group-users', 'project-group-create', 'project-group-select', 'project-group-current', 'project-group-update']),
     '积分、支付与发票': new Set(['points', 'point-packages', 'point-records', 'redeem', 'point-purchase', 'point-pay-status', 'invoice-apply']),
     '模型与创作': new Set(['model-options', 'image-models', 'video-models', 'image-fee', 'image-create', 'image-create-batch', 'video-fee', 'video-create', 'video-create-batch']),
-    '素材与任务': new Set(['upload-files', 'tasks', 'task-wait']),
+    '素材与任务': new Set(['upload-files', 'subject-upload', 'subject-publish', 'subject-publish-batch', 'subject-status', 'subject-group-update', 'tasks', 'task-wait']),
   };
   for (const [group, commands] of Object.entries(groups)) {
     if (commands.has(commandName)) return `${group}:`;
