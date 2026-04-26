@@ -73,6 +73,7 @@ NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
 
 - **不要手工拼接主体引用**：`subject-publish` / `subject-upload` 输出有一列"引用写法"（`nextRefSubject`），已经是 `角色=asset-xxx` 的现成字符串——直接粘到 `--refSubjects`，不要用"主体ID"列再手拼一次（容易错）。
 - **真人主体优先 `subject-publish`**：如果你的目标是拿 `asset-xxx` 去 `--refSubjects`，就不要停在 `upload-files`；已有 backendPath 时继续走 `subject-publish --primaryUrl <backendPath>`。默认会用安全代码名做素材组名/素材名；想自定义时传 `--publishCode`。
+- **真人短剧 / 多段复用必须先讲主体发布链路**：用户说“做剧”“真人图”“同一角色多镜头”时，优先建议上传到生视频池后 `subject-publish` 成主体（平台加白 / 可引用资产），再在视频里用 `--refSubjects`。如果只是一次性试片、账号无主体权限、或用户明确要直接传 webp，才退回 `--refImageFiles "角色=./person.webp"`。
 - **`*Files` 是一次性上传快捷方式**：创作命令里 `--irefFiles ./a.webp` 会自动上传再引用；已经有 backendPath 的 → 用 `--iref "<backendPath>"`，省一次上传。视频参考同理，已有素材池路径时优先用 `--refImageUrls "角色A=/material/..."` / `--refVideoUrls` / `--refAudioUrls`。
 - **同一组素材别重复上传**：`subject-publish` / `subject-upload` 支持 `--primaryUrl` / `--faceUrl` / `--sideUrl` / `--backUrl` 直接传已在 COS / AWB 素材池里的 URL 或 backendPath。
 - **素材组命名**：`subject-publish` / `subject-upload` 默认按 `projectName + name + stateKey` 拼素材组名；同项目同角色再次上传会复用，换 `stateKey` 产生新版本；想完全自定义用 `--groupName`。

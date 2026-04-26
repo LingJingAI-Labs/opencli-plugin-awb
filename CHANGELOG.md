@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7 - 2026-04-26
+
+- Add AWB skill guidance for真人短剧生产流：主体 / 人设图 + 场景图 + 可选音色的参考生视频默认路线。
+- Document model selection tradeoffs for Seedance 2.0, Seedance 2.0 Fast, Kling 3.0 / Omni, Grok, and other reference-video models.
+- Add the 4/9 宫格分镜指挥图 workflow: use Banana Pro / Nano Banana / GPT Image 2 to create a shotboard image, then feed it with subject/persona and scene references into Seedance, Kling, Grok, Veo, Vidu, PixVerse, etc.
+- Clarify 720p as the default automation resolution for Seedance 2.0, with 1080p called out as a higher-cost option.
+
 ## 0.1.6 - 2026-04-24
 
 - Add agent-friendly `subject-publish` and `subject-publish-batch` workflows for reusable human subject assets.
