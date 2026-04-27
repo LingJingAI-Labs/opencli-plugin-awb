@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10 - 2026-04-27
+
+- Add `task-duration-stats` to query the task execution statistics dashboard for best-effort average duration estimates by `bizType`, `platformType`, `modelUseType`, and `channel`.
+- Add Seedance 2.0 post-generation subtitle removal commands via asset-edit watermark API: `seedance-subtitle-remove` and `seedance-subtitle-status`.
+- Document the Seedance 2.0 subtitle-removal constraints: only use the original Volcengine/Seedance result URL, submit within 24 hours when using the free path, and treat returned `public_id` as the follow-up task ID.
+
 ## 0.1.9 - 2026-04-27
 
 - Add explicit pre-submit confirmation rules for AWB generation: model channel, prompt, references, cost, wait strategy, image ratio / 1K-2K-4K quality, image count, video ratio / 720-1080 quality, duration, audio, and subject references.

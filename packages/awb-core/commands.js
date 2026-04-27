@@ -48,6 +48,8 @@ const FEISHU_STREAM_ORIGIN = 'https://internal-api-drive-stream.feishu.cn';
 const AWB_INVOICE_SHARE_TOKEN = 'shrcndwlXIkJetUy2UVRO9E5zxg';
 const AWB_INVOICE_FORM_URL = `${FEISHU_ORIGIN}/share/base/form/${AWB_INVOICE_SHARE_TOKEN}`;
 const AWB_INVOICE_UPLOAD_MOUNT_POINT = 'bitable_tmp_point';
+const TASK_EXEC_STAT_ORIGIN = 'https://monitor-statistics-llm.lingjingai.cn';
+const ASSET_EDIT_ORIGIN = 'https://asset-edit.lingjingai.cn';
 const DRY_RUN_ARG = {
   name: 'dryRun',
   help: '仅预览请求，不真正执行写操作。示例: --dryRun true',
@@ -1462,6 +1464,242 @@ async function pollTaskRecordRows(kwargs = {}) {
   }
 
   return [...latestByTaskId.values()];
+}
+
+function formatStatTimestamp(input) {
+  const value = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(value.getTime())) {
+    throw new Error(`无效时间: ${input}`);
+  }
+  const pad = (number) => String(number).padStart(2, '0');
+  return [
+    value.getFullYear(),
+    pad(value.getMonth() + 1),
+    pad(value.getDate()),
+  ].join('-') + ' ' + [
+    pad(value.getHours()),
+    pad(value.getMinutes()),
+    pad(value.getSeconds()),
+  ].join(':');
+}
+
+function resolveStatTimeRange(kwargs = {}) {
+  const end = kwargs.endTs ? new Date(kwargs.endTs) : new Date();
+  const start = kwargs.startTs
+    ? new Date(kwargs.startTs)
+    : new Date(end.getTime() - Math.max(1, toInt(kwargs.days, 7)) * 24 * 60 * 60 * 1000);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('时间格式无效。示例: --startTs "2026-04-20 00:00:00" --endTs "2026-04-27 23:59:59"');
+  }
+  if (end.getTime() <= start.getTime()) {
+    throw new Error('结束时间必须晚于开始时间。');
+  }
+  return { start, end };
+}
+
+function normalizeStatRow(row = {}) {
+  const toSec = (ms) => {
+    const value = toNumberOrNull(ms);
+    return value == null ? null : Number((value / 1000).toFixed(2));
+  };
+  return {
+    bucketStart: row.bucket_start ?? row.stat_time ?? row.date ?? null,
+    statScope: row.stat_scope ?? null,
+    statGranularity: row.stat_granularity ?? null,
+    bizType: row.biz_type ?? null,
+    platformType: row.platform_type ?? null,
+    modelUseType: row.model_use_type ?? null,
+    channel: row.channel ?? null,
+    totalCount: row.total_cnt ?? null,
+    successCount: row.success_cnt ?? null,
+    failCount: row.fail_cnt ?? null,
+    systemFailCount: row.system_fail_cnt ?? null,
+    successRate: row.success_rate ?? null,
+    failRate: row.fail_rate ?? null,
+    totalAvgSeconds: toSec(row.total_avg_ms),
+    successAvgSeconds: toSec(row.success_avg_ms),
+    failAvgSeconds: toSec(row.fail_avg_ms),
+    totalMaxSeconds: toSec(row.total_max_ms),
+    raw: JSON.stringify(row),
+  };
+}
+
+async function fetchTaskDurationStats(kwargs = {}) {
+  const { start, end } = resolveStatTimeRange(kwargs);
+  const statScope = trimToNull(kwargs.statScope ?? kwargs.scope) ?? 'channel';
+  const statGranularity = trimToNull(kwargs.statGranularity ?? kwargs.granularity) ?? 'day';
+  const pageSize = Math.min(Math.max(toInt(kwargs.pageSize, 20), 1), 100);
+  const params = new URLSearchParams({
+    stat_scope: statScope,
+    stat_granularity: statGranularity,
+    start_ts: formatStatTimestamp(start),
+    end_ts: formatStatTimestamp(end),
+    page: String(Math.max(1, toInt(kwargs.page, 1))),
+    page_size: String(pageSize),
+    order_by: trimToNull(kwargs.orderBy) ?? 'total_avg_ms',
+    order_dir: trimToNull(kwargs.orderDir) ?? 'desc',
+  });
+  const optionalMap = {
+    bizType: 'biz_type',
+    platformType: 'platform_type',
+    modelUseType: 'model_use_type',
+    channel: 'channel',
+  };
+  for (const [argKey, queryKey] of Object.entries(optionalMap)) {
+    const value = trimToNull(kwargs[argKey]);
+    if (value && (queryKey !== 'channel' || statScope === 'channel')) {
+      params.set(queryKey, value);
+    }
+  }
+  const response = await fetch(`${TASK_EXEC_STAT_ORIGIN}/api/task-exec-stat?${params.toString()}`);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.detail?.[0]?.msg || payload?.msg || `${response.status} ${response.statusText}`);
+  }
+  return {
+    meta: payload?.meta ?? {},
+    rows: (Array.isArray(payload?.series) ? payload.series : []).map(normalizeStatRow),
+  };
+}
+
+function presentTaskDurationStats(result) {
+  return withAliasesRows(result.rows, {
+    bucketStart: '统计时间',
+    bizType: '业务类型',
+    platformType: '平台',
+    modelUseType: '模型用途',
+    channel: '通道',
+    totalCount: '总数',
+    successCount: '成功数',
+    totalAvgSeconds: '平均耗时秒',
+    successAvgSeconds: '成功平均秒',
+    failAvgSeconds: '失败平均秒',
+    totalMaxSeconds: '最大耗时秒',
+  });
+}
+
+function resolveAssetEditAuthorization(kwargs = {}) {
+  const direct = trimToNull(kwargs.authorization);
+  if (direct) return direct;
+  const envAuthorization = trimToNull(process.env.ASSET_EDIT_AUTHORIZATION);
+  if (envAuthorization) return envAuthorization;
+  const token = trimToNull(process.env.ASSET_EDIT_TOKEN);
+  if (!token) return null;
+  return /^bearer\s+/i.test(token) ? token : `Bearer ${token}`;
+}
+
+async function assetEditFetch(pathname, options = {}) {
+  const url = new URL(pathname, ASSET_EDIT_ORIGIN);
+  if (options.query) {
+    for (const [key, value] of Object.entries(options.query)) {
+      if (value === undefined || value === null || value === '') continue;
+      url.searchParams.set(key, String(value));
+    }
+  }
+  const headers = { 'Content-Type': 'application/json' };
+  const authorization = resolveAssetEditAuthorization(options.kwargs);
+  if (authorization) headers.Authorization = authorization;
+  const method = options.method ?? 'GET';
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: method === 'GET' ? undefined : JSON.stringify(options.body ?? {}),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = Array.isArray(payload?.detail)
+      ? payload.detail.map((item) => item?.msg ?? JSON.stringify(item)).join('; ')
+      : payload?.detail;
+    throw new Error(detail || payload?.msg || `${response.status} ${response.statusText}`);
+  }
+  return payload;
+}
+
+function isLikelyVolcSeedanceUrl(input) {
+  try {
+    const url = new URL(input);
+    const text = `${url.hostname} ${url.pathname} ${url.search}`.toLowerCase();
+    return /(volc|volces|byte|tos|vod|doubao|seedance|dreamina|jimeng)/.test(text);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeAssetEditTask(row = {}) {
+  return {
+    taskId: row.public_id ?? row.id ?? null,
+    remoteTaskId: row.remote_task_id ?? row.run_id ?? null,
+    remoteRequestId: row.remote_request_id ?? null,
+    status: row.status ?? null,
+    callbackStatus: row.callback_status ?? null,
+    resultUrl: row.result_url ?? row.output_play_url ?? null,
+    sourceUrl: row.source_url ?? row.input_value ?? null,
+    cosUrl: row.cos_url ?? null,
+    expiresAt: row.expires_at ?? null,
+    completedAt: row.completed_at ?? null,
+    createdAt: row.created_at ?? null,
+    updatedAt: row.updated_at ?? null,
+    errorMessage: row.error_message ?? null,
+    raw: JSON.stringify(row),
+  };
+}
+
+function presentAssetEditTask(row) {
+  return withAliasesRows([normalizeAssetEditTask(row)], {
+    taskId: '去字幕任务ID',
+    remoteTaskId: '远端任务ID',
+    status: '状态',
+    callbackStatus: '回调状态',
+    resultUrl: '结果链接',
+    expiresAt: '过期时间',
+    createdAt: '创建时间',
+    errorMessage: '错误',
+  });
+}
+
+async function createSeedanceSubtitleRemoveTask(kwargs = {}) {
+  const videoUrl = trimToNull(kwargs.videoUrl);
+  if (!videoUrl) throw new Error('请提供 Seedance 2.0 原始火山视频链接：`--videoUrl <url>`。');
+  if (!toBool(kwargs.force) && !isLikelyVolcSeedanceUrl(videoUrl)) {
+    throw new Error('`--videoUrl` 看起来不像火山 / Seedance 2.0 原始链接。确认无误可加 `--force true`。');
+  }
+  if (kwargs.createdAt) {
+    const createdMs = new Date(kwargs.createdAt).getTime();
+    if (!Number.isNaN(createdMs) && Date.now() - createdMs > 24 * 60 * 60 * 1000 && !toBool(kwargs.force)) {
+      throw new Error('Seedance 2.0 免费去字幕链路要求生成后 24 小时内处理；超过 24 小时请确认付费方案，或加 `--force true`。');
+    }
+  }
+  return assetEditFetch('/api/watermark/tasks', {
+    method: 'POST',
+    kwargs,
+    body: {
+      name: trimToNull(kwargs.name) ?? null,
+      task_id: trimToNull(kwargs.remoteTaskId) ?? null,
+      video_url: videoUrl,
+      callback_url: trimToNull(kwargs.callbackUrl) ?? null,
+      cos_path: trimToNull(kwargs.cosPath) ?? null,
+    },
+  });
+}
+
+async function waitForAssetEditTask(kwargs = {}) {
+  const waitSeconds = Math.max(0, toInt(kwargs.waitSeconds, 0));
+  const pollIntervalMs = Math.max(1000, toInt(kwargs.pollIntervalMs, 5000));
+  const deadline = Date.now() + waitSeconds * 1000;
+  let task = null;
+  do {
+    task = await assetEditFetch(`/api/watermark/tasks/${kwargs.taskId}`, {
+      kwargs,
+      query: { cos_path: kwargs.cosPath },
+    });
+    const status = String(task?.status ?? '').trim().toUpperCase();
+    if (['SUCCESS', 'SUCCEEDED', 'COMPLETED', 'DONE', 'FAILED', 'FAIL', 'ERROR', 'CANCELED', 'CANCELLED'].includes(status)) {
+      return { ...task, timedOut: false };
+    }
+    if (waitSeconds <= 0 || Date.now() >= deadline) break;
+    await sleep(pollIntervalMs);
+  } while (true);
+  return { ...(task ?? {}), timedOut: waitSeconds > 0 };
 }
 
 function normalizePointPackageRows(list, source = 'api') {
@@ -7275,6 +7513,91 @@ cli({
       event: '事件',
     },
   ),
+});
+
+cli({
+  site: SITE,
+  name: 'task-duration-stats',
+  description: commandHelp('查询任务平均耗时统计', {
+    examples: [
+      'opencli awb task-duration-stats --bizType 视频生成 --modelUseType seedance2.0',
+      'opencli awb task-duration-stats --scope channel --granularity day --platformType volcengine --pageSize 20 -f json',
+    ],
+    hint: '数据来自灵境任务执行统计看板；字段和 AWB 模型组不是一一对应，按 bizType / platformType / modelUseType / channel 做最佳对齐。',
+  }),
+  browser: false,
+  args: [
+    { name: 'scope', default: 'channel', choices: ['task', 'channel'], help: '统计口径：task 或 channel' },
+    { name: 'granularity', default: 'day', choices: ['5m', 'day'], help: '统计粒度：5m 或 day' },
+    { name: 'days', type: 'int', default: 7, help: '未指定 startTs 时向前看的天数' },
+    { name: 'startTs', help: '开始时间。示例: "2026-04-20 00:00:00"' },
+    { name: 'endTs', help: '结束时间。示例: "2026-04-27 23:59:59"' },
+    { name: 'bizType', help: '业务类型。示例: 图片生成 / 视频生成 / 字幕去除' },
+    { name: 'platformType', help: '平台类型。示例: volcengine / jimeng / openai / qwen' },
+    { name: 'modelUseType', help: '模型用途。示例: seedance2.0 / gpt-image-2 / Banana pro' },
+    { name: 'channel', help: '通道名；scope=channel 时生效' },
+    { name: 'page', type: 'int', default: 1 },
+    { name: 'pageSize', type: 'int', default: 20 },
+    { name: 'orderBy', default: 'total_avg_ms', help: '排序字段。示例: total_avg_ms / success_avg_ms / total_cnt' },
+    { name: 'orderDir', default: 'desc', choices: ['asc', 'desc'] },
+  ],
+  columns: ['统计时间', '业务类型', '平台', '模型用途', '通道', '总数', '成功数', '平均耗时秒', '成功平均秒', '失败平均秒', '最大耗时秒'],
+  func: async (_page, kwargs) => presentTaskDurationStats(await fetchTaskDurationStats(kwargs)),
+});
+
+cli({
+  site: SITE,
+  name: 'seedance-subtitle-remove',
+  description: commandHelp('创建 Seedance 2.0 视频去字幕任务', {
+    examples: [
+      'opencli awb seedance-subtitle-remove --videoUrl "https://..." --name clip-001 -f json',
+      'opencli awb seedance-subtitle-remove --videoUrl "https://..." --waitSeconds 300 -f json',
+    ],
+    hint: '只用于 Seedance 2.0 生视频后的火山原始链接，且应在生成后 24 小时内提交。若使用 asset-edit 私有账号，传 `--authorization` 或设置 ASSET_EDIT_AUTHORIZATION。',
+  }),
+  browser: false,
+  args: [
+    { name: 'videoUrl', required: true, help: 'Seedance 2.0 生成后的火山原始视频链接，不是下载后重新上传的文件链接' },
+    { name: 'name', help: '去字幕任务名' },
+    { name: 'createdAt', help: '原视频生成时间；超过 24 小时会阻止，确认付费/有效时可加 force' },
+    { name: 'authorization', help: 'asset-edit Authorization header；也可用 ASSET_EDIT_AUTHORIZATION / ASSET_EDIT_TOKEN' },
+    { name: 'remoteTaskId', help: '可选：火山远端任务 ID，会作为 asset-edit task_id 传入' },
+    { name: 'callbackUrl', help: '可选：asset-edit 完成后回调地址' },
+    { name: 'cosPath', help: '可选：指定结果 cos_path' },
+    { name: 'waitSeconds', type: 'int', default: 0, help: '创建后等待秒数；0=只提交不等待' },
+    { name: 'pollIntervalMs', type: 'int', default: 5000 },
+    { name: 'force', help: '跳过 URL/24小时本地保护。示例: --force true' },
+  ],
+  columns: ['去字幕任务ID', '远端任务ID', '状态', '回调状态', '结果链接', '过期时间', '创建时间', '错误'],
+  func: async (_page, kwargs) => {
+    const created = await createSeedanceSubtitleRemoveTask(kwargs);
+    const taskId = created?.public_id ?? created?.id;
+    if (toInt(kwargs.waitSeconds, 0) <= 0 || !taskId) {
+      return presentAssetEditTask(created);
+    }
+    return presentAssetEditTask(await waitForAssetEditTask({ ...kwargs, taskId }));
+  },
+});
+
+cli({
+  site: SITE,
+  name: 'seedance-subtitle-status',
+  description: commandHelp('查询 Seedance 2.0 去字幕任务', {
+    examples: [
+      'opencli awb seedance-subtitle-status --taskId 123 -f json',
+      'opencli awb seedance-subtitle-status --taskId 123 --waitSeconds 300 -f json',
+    ],
+  }),
+  browser: false,
+  args: [
+    { name: 'taskId', required: true, help: 'asset-edit 去字幕 public_id' },
+    { name: 'authorization', help: 'asset-edit Authorization header；也可用 ASSET_EDIT_AUTHORIZATION / ASSET_EDIT_TOKEN' },
+    { name: 'cosPath', help: '可选：查询时附带 cos_path' },
+    { name: 'waitSeconds', type: 'int', default: 0 },
+    { name: 'pollIntervalMs', type: 'int', default: 5000 },
+  ],
+  columns: ['去字幕任务ID', '远端任务ID', '状态', '回调状态', '结果链接', '过期时间', '创建时间', '错误'],
+  func: async (_page, kwargs) => presentAssetEditTask(await waitForAssetEditTask(kwargs)),
 });
 
 cli({

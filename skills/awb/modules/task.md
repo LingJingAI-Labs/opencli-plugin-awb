@@ -28,6 +28,7 @@
 | `task-wait --taskId <id> --taskType <t>` | 阻塞等单个任务完成 | `--waitSeconds 300`（默认）；完成后返回 `firstResultUrl` / `resultFileList` |
 | `task-records --taskRecordFile <file>` | 查看本地 JSONL 任务台账 | `--pendingOnly true` 只看本地尚未记录完成结果的任务 |
 | `task-record-poll --taskRecordFile <file>` | 轮询台账里的未完成任务并回写结果 | 默认只查一轮；`--waitSeconds N` 持续轮询 |
+| `task-duration-stats` | 查任务平均耗时 | 读统计看板 API；按 `bizType/platformType/modelUseType/channel` 最佳对齐 |
 
 ## 4. 常用写法
 
@@ -62,6 +63,11 @@ TASK_ID=$("$AWB_CMD" image-create --modelGroupCode <g> --prompt "..." \
 
 # 查某个时间点之前
 "$AWB_CMD" tasks --taskType IMAGE_CREATE --minTime 1735689600000 -f json
+
+# 查近 7 天 Seedance 2.0 视频平均耗时
+"$AWB_CMD" task-duration-stats \
+  --bizType 视频生成 --platformType volcengine --modelUseType seedance2.0 \
+  --scope channel --granularity day -f json
 ```
 
 ## 5. 经验引导
@@ -77,7 +83,9 @@ TASK_ID=$("$AWB_CMD" image-create --modelGroupCode <g> --prompt "..." \
   - 视频：首次等 180–300 秒；长视频不要默认等满 10 分钟
   - 批量：不要逐条同步等完再提交下一条；提交和查询解耦，必要时限制查询并发
 - **耗时估算来源**：
-  - 优先看统计看板：`https://monitor-statistics-llm.lingjingai.cn/static/task_exec_stat_dashboard.html`，按 task / channel / biz_type / platform_type / model_use_type / channel 过滤，看 `Avg Duration (s)`
+  - 优先用 CLI 读统计看板：`task-duration-stats --bizType <业务> --platformType <平台> --modelUseType <模型用途> --scope channel -f json`
+  - 统计看板地址：`https://monitor-statistics-llm.lingjingai.cn/static/task_exec_stat_dashboard.html`，按 task / channel / biz_type / platform_type / model_use_type / channel 过滤，看 `Avg Duration (s)`
+  - 字段不是和 AWB `modelGroupCode` 精确一一对应：`bizType` 通常填 `图片生成` / `视频生成` / `字幕去除`；`platformType` 对齐供应商（如 `volcengine` / `jimeng` / `openai` / `qwen`）；`modelUseType` 对齐模型族或看板里的原始名称（如 `seedance2.0` / `doubao-seedance-2-0-260128` / `gpt-image-2`）；`channel` 用通道处理器名。对不上时先查宽口径，再逐步加过滤。
   - 看板不可用或没有目标组合时，再用下面的经验窗口
 - **粗略经验窗口**：
   - 普通单图 / GPT Image 2 / Banana / Nano Banana：常见几十秒到 2 分钟，首次等待 90–180 秒

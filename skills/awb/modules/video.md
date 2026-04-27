@@ -17,6 +17,8 @@
 | `video-fee` | 估算单次生视频积分与项目组余额 | Token 计费模型（如 Seedance 2.0）特别要先跑这个 |
 | `video-create` | 单次生视频 | `--waitSeconds 180` 同步等；视频通常比图慢，建议给大一点 |
 | `video-create-batch` | 批量生视频 | `--inputFile` 见 [`../references/batch-input-file.md`](../references/batch-input-file.md) |
+| `seedance-subtitle-remove` | Seedance 2.0 生成后去字幕 | 只接火山原始 Seedance 2.0 视频链接；生成后 24 小时内处理 |
+| `seedance-subtitle-status` | 查询去字幕任务 | asset-edit 任务 ID；可短窗口等待 |
 
 ### 四种模式
 
@@ -226,6 +228,26 @@ NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
   --dryRun true -f json
 ```
 
+### 4.11 Seedance 2.0 生成后去字幕
+
+只在 **Seedance 2.0** 生视频结果上用。输入必须是火山 / Seedance 2.0 的原始视频链接，不要用下载后重新上传的 CDN 链接或任意公网视频链接。免费链路要求在视频生成完成后 **24 小时内** 提交；超过 24 小时通常只能走付费处理。
+
+```bash
+# 1) 先等 Seedance 2.0 视频完成，拿原始火山结果链接
+"$AWB_CMD" task-wait --taskId <videoTaskId> --taskType VIDEO_GROUP \
+  --waitSeconds 300 -f json
+
+# 2) 24 小时内提交去字幕任务
+"$AWB_CMD" seedance-subtitle-remove \
+  --videoUrl "<volc-seedance-original-video-url>" \
+  --name "<clip-name>" -f json
+
+# 3) 后续查询；也可以创建时加 --waitSeconds 300 短窗口等
+"$AWB_CMD" seedance-subtitle-status --taskId <assetEditTaskId> -f json
+```
+
+`seedance-subtitle-remove` 返回的 `去字幕任务ID` 是 asset-edit 的 `public_id`，后续传给 `seedance-subtitle-status --taskId`。如果 asset-edit 需要私有登录态，传 `--authorization "<Authorization header>"`，或设置 `ASSET_EDIT_AUTHORIZATION` / `ASSET_EDIT_TOKEN`。CLI 会对 URL 和 24 小时做本地保护；确认是有效原始链接或付费链路时才用 `--force true`。
+
 ## 5. 经验引导
 
 - **先确认模式**：`model-options` 看 `supportsPromptOnly` / `frameFeature` / `refFeature` / `paramKeys`；不支持纯 prompt 的模型传了 `--prompt` 也得补帧或参考。
@@ -241,6 +263,7 @@ NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
 - **`--generatedTime` 单位是秒**：常见 5 / 10 / 15；部分模型只接离散值。可灵 3.0（非 Omni）的参考生视频 `multi_param` 路径截至 2026-04-24 实测 10 秒可创建、15 秒会失败；可灵 3.0-Omni 同路径 15 秒已实测可成功。CLI 当前只拦截已验证会失败的非 Omni 15 秒路径。
 - **Token 计费模型（Seedance 2.0 系列）先 `video-fee`**：和按张 / 按次计费的不一样，提示词长度 / 参考数量都会推高成本。
 - **默认清晰度是 720p**：Seedance 2.0 可用 1080p，但成本很高；除非用户明确要高质量，否则自动化默认 720p。
+- **Seedance 2.0 去字幕要趁早**：如果用户要求“生成完去字幕 / 去水印”，只对 Seedance 2.0 结果调用 `seedance-subtitle-remove`，并在完成后 24 小时内用原始火山链接提交。
 - **没给清晰度 / 比例 / 时长就不要静默提交**：先问用户，或明确建议默认值（如试片 `720p`、`5s`、竖屏 `9:16` / 横屏 `16:9`）并等待确认；`1080p` / Pro / 高质通道必须确认成本。
 - **故事板、音效开关不是所有模型都有**：查 `video-models` 的 `特色能力` 列；也能在 `paramKeys` 里看 `multi_prompt` / `audio` 是否存在。故事板分镜 `duration` 是秒，总和必须等于 `--generatedTime`。
 - **`--waitSeconds 180` 起步**：视频任务比生图慢得多；想完全异步就 `--waitSeconds 0`，拿 `taskId` 走 `task-wait`。
