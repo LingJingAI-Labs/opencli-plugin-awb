@@ -26,6 +26,27 @@ function parseDotenvValue(value) {
   return text;
 }
 
+function loadDotenvFile(envPath, options = {}) {
+  if (!envPath || !existsSync(envPath)) return false;
+  const allowKey = options.allowKey ?? (() => true);
+  let loaded = false;
+  try {
+    for (const rawLine of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#') || !line.includes('=')) continue;
+      const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (!match) continue;
+      const [, key, rawValue] = match;
+      if (!allowKey(key)) continue;
+      if (process.env[key] === undefined) {
+        process.env[key] = parseDotenvValue(rawValue);
+        loaded = true;
+      }
+    }
+  } catch {}
+  return loaded;
+}
+
 function loadNearestDotenv() {
   if (process.env.AWB_DISABLE_DOTENV === '1' || process.env.AWB_DISABLE_DOTENV === 'true') return;
   let envPath = process.env.AWB_ENV_PATH ? path.resolve(process.env.AWB_ENV_PATH) : null;
@@ -42,22 +63,34 @@ function loadNearestDotenv() {
       current = parent;
     }
   }
-  if (!envPath || !existsSync(envPath)) return;
-  try {
-    for (const rawLine of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith('#') || !line.includes('=')) continue;
-      const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-      if (!match) continue;
-      const [, key, rawValue] = match;
-      if (process.env[key] === undefined) {
-        process.env[key] = parseDotenvValue(rawValue);
-      }
-    }
-  } catch {}
+  loadDotenvFile(envPath);
+}
+
+function loadUserEnvFiles() {
+  if (process.env.AWB_DISABLE_USER_ENV === '1' || process.env.AWB_DISABLE_USER_ENV === 'true') return;
+  const home = os.homedir();
+  const allowKey = (key) =>
+    /^AIHUBMIX_/i.test(key) ||
+    /^AWB_/i.test(key) ||
+    /^ASSET_EDIT_/i.test(key);
+  const candidates = [
+    path.join(home, '.awb.env'),
+    path.join(home, '.aihubmix', 'env'),
+    path.join(home, '.aihubmix', '.env'),
+    path.join(home, '.zshenv'),
+    path.join(home, '.zprofile'),
+    path.join(home, '.zshrc'),
+    path.join(home, '.profile'),
+    path.join(home, '.bash_profile'),
+    path.join(home, '.bashrc'),
+  ];
+  for (const filePath of candidates) {
+    loadDotenvFile(filePath, { allowKey });
+  }
 }
 
 loadNearestDotenv();
+loadUserEnvFiles();
 
 const OPENCLI_HOME_DIR = path.join(os.homedir(), '.opencli');
 const STANDALONE_HOME_DIR = path.join(os.homedir(), '.lingjingai', 'awb');

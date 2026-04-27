@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.17 - 2026-04-27
+
+- Load user-level env files for AWB / AiHubMix credentials, including simple `export AIHUBMIX_KEY=...` lines in `~/.zshrc`, without executing shell scripts.
+
 ## 0.1.16 - 2026-04-27
 
 - Treat `happyhorse-1.0-i2v` as source-ratio image-to-video: model hints and examples no longer suggest `--ratio`, `--size`, or `--quality`, and those flags are rejected for i2v.

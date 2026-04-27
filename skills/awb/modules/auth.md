@@ -64,7 +64,7 @@ export AWB_ACCESS_KEY=<access_key>
 ## 5. 经验引导
 
 - **第一步永远是 `auth-status -f json`**：先看认证方式是 `access_key` 还是 `token`；token 可能过期，access key 则看是否配置。
-- **自动化优先 access key**：e2b / CI 直接注入 `AWB_ACCESS_KEY`；`AWB_CODE` 只是旧别名，不是 user_id。CLI 会从当前目录向上读取最近的 `.env`，但不会覆盖已有 shell env。
+- **自动化优先 access key**：e2b / CI 直接注入 `AWB_ACCESS_KEY`；`AWB_CODE` 只是旧别名，不是 user_id。CLI 会从当前目录向上读取最近的 `.env`，也会安全解析用户级 env 文件里的简单 `export KEY=value` 行（如 `~/.awb.env`、`~/.zshrc`），但不会覆盖已有 shell env，也不会执行 shell 脚本。
 - **`login-key` 默认会验 key**：保存前会请求一次账号信息；只有离线写配置时才加 `--skipVerify true`。
 - **扫码强烈优先**：手机验证码路径需要网页端阿里云 captcha，CLI 不负责，脚本里走不通。
 - **needBind 是独立状态**：`login-qr` 成功但返回 `needBind=true` 时说明官网账号还没绑微信；此时把用户引去官网绑定，比裸跑 `bind-phone` 更稳。

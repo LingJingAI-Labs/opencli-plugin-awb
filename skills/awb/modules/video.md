@@ -252,7 +252,7 @@ NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
 
 ### 4.12 AiHubMix / HappyHorse 外部视频模型
 
-HappyHorse 暂未接入灵境 AWB 积分模型表时，可直接用 AiHubMix key 走外部计费。CLI 默认读取 `AIHUBMIX_API_KEY`（也兼容 `AIHUBMIX_KEY` / `AIHUBMIX_TOKEN`），不消耗 AWB 项目组积分；成本归属由 AiHubMix key 所在项目承担。
+HappyHorse 暂未接入灵境 AWB 积分模型表时，可直接用 AiHubMix key 走外部计费。CLI 默认读取 `AIHUBMIX_API_KEY`（也兼容 `AIHUBMIX_KEY` / `AIHUBMIX_TOKEN`），不消耗 AWB 项目组积分；成本归属由 AiHubMix key 所在项目承担。除当前进程环境外，CLI 也会安全解析用户级 env 文件中的简单 `export AIHUBMIX_KEY=...` 行（如 `~/.zshrc`、`~/.zprofile`、`~/.awb.env`、`~/.aihubmix/env`），不会执行 shell 脚本。
 
 `video-fee` 和 `video-create --dryRun true` 会给外部成本估算：默认按 AiHubMix HappyHorse 价格 `720p = 0.1395 USD/s`、`1080p = 0.2479 USD/s`、`1 USD = 7.2 CNY` 估算，并返回 `estimatedCostUsd`、`estimatedCostCny`、`estimatedUsdPerSecond`、`estimatedResolutionTier`。实际扣费以 AiHubMix 账单为准；如 AiHubMix 实际单价变动，可用 `AIHUBMIX_HAPPYHORSE_720P_USD_PER_SECOND`、`AIHUBMIX_HAPPYHORSE_1080P_USD_PER_SECOND`、`AIHUBMIX_CNY_PER_USD` 覆盖。
 

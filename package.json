@@ -1,6 +1,6 @@
 {
   "name": "anime-workbench-cli",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "LingJing AI Anime Workbench CLI monorepo with standalone CLI, opencli frontend, shared core, and skills",
   "license": "MIT",
   "type": "module",
