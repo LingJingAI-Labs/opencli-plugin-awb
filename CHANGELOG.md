@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.13 - 2026-04-27
+
+- Align `happyhorse-1.0-r2v` with AiHubMix HappyHorse request shape: `input.prompt`, `input.media`, and `parameters`.
+- Validate r2v reference image count, public URL requirement, ratio, resolution, and 3-15 second duration before submitting.
+- Document r2v `character1` / `character2` reference ordering and supported media constraints.
+
 ## 0.1.12 - 2026-04-27
 
 - Add HappyHorse / AiHubMix external cost estimates to `video-fee`, `video-create --dryRun true`, and created task output.

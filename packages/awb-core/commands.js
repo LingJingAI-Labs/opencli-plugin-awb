@@ -57,6 +57,21 @@ const AIHUBMIX_HAPPYHORSE_COST_DEFAULTS = {
   cnyPerUsd: 7.2,
   source: 'AiHubMix HappyHorse pricing: 720p 0.1395 USD/s, 1080p 0.2479 USD/s.',
 };
+const AIHUBMIX_HAPPYHORSE_SECONDS_MIN = 2;
+const AIHUBMIX_HAPPYHORSE_SECONDS_MAX = 15;
+const AIHUBMIX_HAPPYHORSE_R2V_SECONDS_MIN = 3;
+const AIHUBMIX_HAPPYHORSE_ALLOWED_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4']);
+const AIHUBMIX_HAPPYHORSE_IMAGE_EXTS = new Set(['.jpeg', '.jpg', '.png', '.bmp', '.webp']);
+const AIHUBMIX_HAPPYHORSE_R2V_IMAGE_EXTS = new Set(['.jpeg', '.jpg', '.png', '.webp']);
+const AIHUBMIX_HAPPYHORSE_VIDEO_EXTS = new Set(['.mp4', '.mov']);
+const AIHUBMIX_HAPPYHORSE_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const AIHUBMIX_HAPPYHORSE_MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const AIHUBMIX_HAPPYHORSE_MIN_IMAGE_SIDE = 300;
+const AIHUBMIX_HAPPYHORSE_R2V_MIN_IMAGE_SHORT_SIDE = 400;
+const AIHUBMIX_HAPPYHORSE_MIN_IMAGE_RATIO = 2 / 5;
+const AIHUBMIX_HAPPYHORSE_MAX_IMAGE_RATIO = 5 / 2;
+const AIHUBMIX_HAPPYHORSE_R2V_MIN_REFERENCE_IMAGES = 1;
+const AIHUBMIX_HAPPYHORSE_R2V_MAX_REFERENCE_IMAGES = 9;
 const AIHUBMIX_VIDEO_MODELS = [
   {
     modelCode: 'happyhorse-1.0-t2v',
@@ -5363,6 +5378,7 @@ function mimeTypeFromPath(filePath) {
     '.jpeg': 'image/jpeg',
     '.png': 'image/png',
     '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
     '.gif': 'image/gif',
     '.mp4': 'video/mp4',
     '.mov': 'video/quicktime',
@@ -5387,19 +5403,32 @@ async function resolveAihubmixReferenceValue(spec, fallbackFile) {
 }
 
 async function firstAihubmixImageReference(kwargs) {
-  const imageSpecs = [
-    ...parseNamedResourceSpecs(kwargs.refImageUrls, { valueKey: 'value', itemLabel: '参考图片地址' }),
-    ...parseNamedResourceSpecs(kwargs.refImageFiles, { valueKey: 'value', itemLabel: '参考图片文件' }),
-    ...parseNamedResourceSpecs(parseJsonArg(kwargs.refImagesJson, []), { valueKey: 'value', itemLabel: '参考图片 JSON' }),
-  ];
-  const frameSpec = trimToNull(kwargs.frameUrl ?? kwargs.frameFile)
-    ? [{ value: kwargs.frameUrl ?? kwargs.frameFile }]
-    : [];
-  for (const spec of [...frameSpec, ...imageSpecs]) {
+  for (const spec of [...collectAihubmixFrameSpecs(kwargs), ...collectAihubmixImageSpecs(kwargs)]) {
     const value = await resolveAihubmixReferenceValue(spec);
     if (value) return value;
   }
   return null;
+}
+
+function collectAihubmixImageSpecs(kwargs) {
+  return [
+    ...parseNamedResourceSpecs(kwargs.refImageUrls, { valueKey: 'value', itemLabel: '参考图片地址' }),
+    ...parseNamedResourceSpecs(kwargs.refImageFiles, { valueKey: 'value', itemLabel: '参考图片文件' }),
+    ...parseNamedResourceSpecs(parseJsonArg(kwargs.refImagesJson, []), { valueKey: 'value', itemLabel: '参考图片 JSON' }),
+  ];
+}
+
+function collectAihubmixFrameSpecs(kwargs) {
+  return trimToNull(kwargs.frameUrl ?? kwargs.frameFile)
+    ? [{ value: kwargs.frameUrl ?? kwargs.frameFile }]
+    : [];
+}
+
+function collectAihubmixVideoSpecs(kwargs) {
+  return [
+    ...parseNamedResourceSpecs(kwargs.refVideoUrls, { valueKey: 'value', itemLabel: '参考视频地址' }),
+    ...parseNamedResourceSpecs(kwargs.refVideoFiles, { valueKey: 'value', itemLabel: '参考视频文件' }),
+  ];
 }
 
 function envNumber(name, fallback) {
@@ -5412,10 +5441,164 @@ function roundMoney(value) {
 }
 
 function parseAihubmixSeconds(request = {}, kwargs = {}) {
-  return Math.max(1, toNumberOrNull(request.seconds ?? kwargs.generatedTime ?? kwargs.seconds) ?? 5);
+  return Math.max(1, toNumberOrNull(request.parameters?.duration ?? request.seconds ?? kwargs.generatedTime ?? kwargs.seconds) ?? 5);
+}
+
+function extensionFromUrlOrPath(value) {
+  const text = trimToNull(value);
+  if (!text || /^data:/i.test(text)) return '';
+  try {
+    return path.extname(new URL(text).pathname).toLowerCase();
+  } catch {
+    return path.extname(text).toLowerCase();
+  }
+}
+
+function validateAihubmixUrlExtension(value, allowedExts, label) {
+  const ext = extensionFromUrlOrPath(value);
+  if (ext && !allowedExts.has(ext)) {
+    throw new Error(`${label} 格式不支持：${ext}。HappyHorse 支持 ${Array.from(allowedExts).map((item) => item.slice(1)).join('、')}。`);
+  }
+}
+
+function validateAihubmixDataUrl(value, allowedMimePrefixes, label) {
+  const match = String(value ?? '').match(/^data:([^;,]+)[;,]/i);
+  if (!match) return;
+  const mime = match[1].toLowerCase();
+  if (!allowedMimePrefixes.some((prefix) => mime === prefix || mime.startsWith(`${prefix}/`))) {
+    throw new Error(`${label} data URL 类型不支持：${mime}。`);
+  }
+}
+
+async function validateAihubmixLocalImage(filePath, label) {
+  const absolutePath = path.resolve(filePath);
+  const ext = path.extname(absolutePath).toLowerCase();
+  if (!AIHUBMIX_HAPPYHORSE_IMAGE_EXTS.has(ext)) {
+    throw new Error(`${label} 格式不支持：${ext || '未知'}。HappyHorse 图片支持 jpeg、jpg、png、bmp、webp。`);
+  }
+  const stat = await fs.stat(absolutePath);
+  if (stat.size > AIHUBMIX_HAPPYHORSE_MAX_IMAGE_BYTES) {
+    throw new Error(`${label} 文件过大：${roundMoney(stat.size / 1024 / 1024)}MB，单张图片不能超过 10MB。`);
+  }
+  const meta = await readImageMetadata(absolutePath).catch(() => null);
+  if (meta?.width && meta?.height) {
+    if (meta.width < AIHUBMIX_HAPPYHORSE_MIN_IMAGE_SIDE || meta.height < AIHUBMIX_HAPPYHORSE_MIN_IMAGE_SIDE) {
+      throw new Error(`${label} 分辨率过小：${meta.width}x${meta.height}，图片边长需 >= 300px。`);
+    }
+    const ratio = meta.width / meta.height;
+    if (ratio < AIHUBMIX_HAPPYHORSE_MIN_IMAGE_RATIO || ratio > AIHUBMIX_HAPPYHORSE_MAX_IMAGE_RATIO) {
+      throw new Error(`${label} 宽高比不支持：${meta.width}:${meta.height}，需满足 2:5 <= 宽高比 <= 5:2。`);
+    }
+  }
+}
+
+async function validateAihubmixLocalVideo(filePath, label) {
+  const absolutePath = path.resolve(filePath);
+  const ext = path.extname(absolutePath).toLowerCase();
+  if (!AIHUBMIX_HAPPYHORSE_VIDEO_EXTS.has(ext)) {
+    throw new Error(`${label} 格式不支持：${ext || '未知'}。HappyHorse 参考视频支持 mp4、mov。`);
+  }
+  const stat = await fs.stat(absolutePath);
+  if (stat.size > AIHUBMIX_HAPPYHORSE_MAX_VIDEO_BYTES) {
+    throw new Error(`${label} 文件过大：${roundMoney(stat.size / 1024 / 1024)}MB，单个视频不能超过 100MB。`);
+  }
+}
+
+async function validateAihubmixReferenceSpec(kind, spec, label) {
+  const value = trimToNull(spec?.value ?? spec?.url ?? spec?.file ?? spec?.path);
+  if (!value) return;
+  if (/^data:/i.test(value)) {
+    validateAihubmixDataUrl(value, [kind], label);
+    return;
+  }
+  if (/^https?:\/\//i.test(value)) {
+    validateAihubmixUrlExtension(
+      value,
+      kind === 'video' ? AIHUBMIX_HAPPYHORSE_VIDEO_EXTS : AIHUBMIX_HAPPYHORSE_IMAGE_EXTS,
+      label,
+    );
+    return;
+  }
+  if (kind === 'video') {
+    await validateAihubmixLocalVideo(value, label);
+  } else if (kind === 'image') {
+    await validateAihubmixLocalImage(value, label);
+  }
+}
+
+async function validateAihubmixR2vImageUrlSpec(spec, index) {
+  const label = `HappyHorse r2v 参考图 ${index + 1}`;
+  const value = trimToNull(spec?.value ?? spec?.url ?? spec?.file ?? spec?.path);
+  if (!value) {
+    throw new Error(`${label} 缺少 URL。`);
+  }
+  if (!/^https?:\/\//i.test(value)) {
+    throw new Error(`${label} 必须是公网 HTTP/HTTPS URL；happyhorse-1.0-r2v 不接受本地文件或 data URL。`);
+  }
+  validateAihubmixUrlExtension(value, AIHUBMIX_HAPPYHORSE_R2V_IMAGE_EXTS, label);
+}
+
+async function buildAihubmixR2vMedia(specs) {
+  if (specs.length < AIHUBMIX_HAPPYHORSE_R2V_MIN_REFERENCE_IMAGES || specs.length > AIHUBMIX_HAPPYHORSE_R2V_MAX_REFERENCE_IMAGES) {
+    throw new Error(`happyhorse-1.0-r2v 参考图数量必须是 ${AIHUBMIX_HAPPYHORSE_R2V_MIN_REFERENCE_IMAGES}-${AIHUBMIX_HAPPYHORSE_R2V_MAX_REFERENCE_IMAGES} 张。`);
+  }
+  await Promise.all(specs.map((spec, index) => validateAihubmixR2vImageUrlSpec(spec, index)));
+  return specs.map((spec) => ({
+    type: 'reference_image',
+    url: trimToNull(spec.value ?? spec.url ?? spec.file ?? spec.path),
+  }));
+}
+
+function aihubmixSizeFromRatio(ratio) {
+  if (ratio === '9:16') return '720x1280';
+  if (ratio === '1:1') return '960x960';
+  if (ratio === '4:3') return '960x720';
+  if (ratio === '3:4') return '720x960';
+  return '1280x720';
+}
+
+function validateAihubmixVideoBasics(model, kwargs = {}) {
+  const seconds = parseAihubmixSeconds({}, kwargs);
+  const minSeconds = model.modelCode === 'happyhorse-1.0-r2v'
+    ? AIHUBMIX_HAPPYHORSE_R2V_SECONDS_MIN
+    : AIHUBMIX_HAPPYHORSE_SECONDS_MIN;
+  if (seconds < minSeconds || seconds > AIHUBMIX_HAPPYHORSE_SECONDS_MAX) {
+    throw new Error(`HappyHorse ${model.modelCode} 支持的生成时长是 ${minSeconds}-${AIHUBMIX_HAPPYHORSE_SECONDS_MAX} 秒，请调整 --generatedTime。`);
+  }
+  const ratio = trimToNull(kwargs.ratio);
+  if (model.modelCode !== 'happyhorse-1.0-i2v' && ratio && !AIHUBMIX_HAPPYHORSE_ALLOWED_RATIOS.has(ratio)) {
+    throw new Error(`HappyHorse ${model.modelCode} 支持的视频比例：16:9、9:16、1:1、4:3、3:4。`);
+  }
+  if (model.modelCode === 'happyhorse-1.0-i2v' && ratio) {
+    throw new Error('happyhorse-1.0-i2v 的视频比例跟随原图，不支持额外传 --ratio。');
+  }
+}
+
+function normalizeAihubmixResolution(kwargs = {}) {
+  const raw = trimToNull(kwargs.resolution ?? kwargs.quality);
+  if (!raw) return '1080P';
+  const value = String(raw).trim().toUpperCase();
+  if (value === '720' || value === '720P') return '720P';
+  if (value === '1080' || value === '1080P' || value === 'HD') return '1080P';
+  throw new Error('HappyHorse resolution 只支持 720P / 1080P。可用 `--quality 720P` 或 `--quality 1080P`。');
+}
+
+function validateAihubmixPromptLength(prompt, modelCode) {
+  const text = String(prompt ?? '');
+  const chineseChars = Array.from(text).filter((char) => /[\u3400-\u9FFF]/u.test(char)).length;
+  const nonChineseChars = Array.from(text).filter((char) => !/[\u3400-\u9FFF\s]/u.test(char)).length;
+  if (chineseChars > 2500) {
+    throw new Error(`${modelCode} prompt 中文长度不能超过 2500 字。`);
+  }
+  if (nonChineseChars > 5000) {
+    throw new Error(`${modelCode} prompt 非中文长度不能超过 5000 字符。`);
+  }
 }
 
 function isAihubmix1080pEstimate(request = {}, kwargs = {}) {
+  const resolution = String(request.parameters?.resolution ?? kwargs.resolution ?? '').toUpperCase();
+  if (resolution === '1080P') return true;
+  if (resolution === '720P') return false;
   const quality = String(kwargs.quality ?? request.quality ?? '').toLowerCase();
   if (/(^|[^0-9])(1080|2k|4k|hd|uhd)([^0-9]|$)/i.test(quality)) return true;
   const size = String(request.size ?? kwargs.size ?? '').toLowerCase();
@@ -5450,14 +5633,22 @@ function buildAihubmixVideoCostEstimate(model = {}, request = {}, kwargs = {}) {
 }
 
 async function buildAihubmixVideoRequestForEstimate(kwargs = {}) {
+  const selectedModel = await resolveModelSelection('video', kwargs);
+  if (selectedModel.modelCode === 'happyhorse-1.0-r2v') {
+    return buildAihubmixVideoRequest(kwargs);
+  }
   return buildAihubmixVideoRequest({
     ...kwargs,
     frameFile: null,
     refImageFiles: null,
     refVideoFiles: null,
     refAudioFiles: null,
-  }).catch(async () => {
-    const model = await resolveModelSelection('video', kwargs);
+  }).catch(async (error) => {
+    const model = selectedModel;
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('需要首帧/参考图')) {
+      throw error;
+    }
     const size =
       trimToNull(kwargs.size) ??
       (trimToNull(kwargs.quality) && String(kwargs.quality).includes('x') ? trimToNull(kwargs.quality) : null) ??
@@ -5488,22 +5679,48 @@ async function aihubmixContentItem(kind, spec) {
 
 async function buildAihubmixVideoRequest(kwargs = {}) {
   const model = await resolveModelSelection('video', kwargs);
+  validateAihubmixVideoBasics(model, kwargs);
   const prompt = trimToNull(kwargs.prompt ?? kwargs.frameText);
   if (!prompt) {
     throw new Error('HappyHorse 视频生成需要 `--prompt`。');
   }
+  validateAihubmixPromptLength(prompt, model.modelCode);
   const seconds = trimToNull(kwargs.generatedTime) ?? trimToNull(kwargs.seconds) ?? '5';
+  const ratio = trimToNull(kwargs.ratio);
+  if (model.modelCode === 'happyhorse-1.0-r2v') {
+    const imageSpecs = collectAihubmixImageSpecs(kwargs);
+    const media = await buildAihubmixR2vMedia(imageSpecs);
+    const resolution = normalizeAihubmixResolution(kwargs);
+    const request = {
+      model: model.modelCode,
+      input: {
+        prompt,
+        media,
+      },
+      parameters: {
+        resolution,
+        ratio: ratio || '16:9',
+        duration: toInt(seconds, 5),
+      },
+    };
+    const override = parseJsonArg(kwargs.aihubmixRequestJson, null);
+    return {
+      model,
+      request: override && typeof override === 'object' && !Array.isArray(override)
+        ? { ...request, ...override }
+        : request,
+    };
+  }
   const size =
     trimToNull(kwargs.size) ??
     (trimToNull(kwargs.quality) && String(kwargs.quality).includes('x') ? trimToNull(kwargs.quality) : null) ??
-    (trimToNull(kwargs.ratio) === '9:16' ? '720x1280' : trimToNull(kwargs.ratio) === '1:1' ? '960x960' : '1280x720');
+    (model.modelCode === 'happyhorse-1.0-i2v' ? null : aihubmixSizeFromRatio(ratio));
   const body = {
     model: model.modelCode,
     prompt,
     seconds,
-    size,
   };
-  const ratio = trimToNull(kwargs.ratio);
+  if (size) body.size = size;
   if (ratio && !String(size).includes('x')) body.ratio = ratio;
 
   const extraBody = parseJsonArg(kwargs.aihubmixExtraBodyJson, null);
@@ -5512,6 +5729,9 @@ async function buildAihubmixVideoRequest(kwargs = {}) {
   }
 
   if (model.modelCode === 'happyhorse-1.0-i2v') {
+    for (const spec of [...collectAihubmixFrameSpecs(kwargs), ...collectAihubmixImageSpecs(kwargs)]) {
+      await validateAihubmixReferenceSpec('image', spec, 'HappyHorse 图生视频参考图');
+    }
     const inputReference = await firstAihubmixImageReference(kwargs);
     if (!inputReference) {
       throw new Error('happyhorse-1.0-i2v 需要首帧/参考图：传 `--frameUrl` / `--frameFile` / `--refImageUrls` / `--refImageFiles`。');
@@ -5519,15 +5739,18 @@ async function buildAihubmixVideoRequest(kwargs = {}) {
     body.input_reference = inputReference;
   }
 
-  if (model.modelCode === 'happyhorse-1.0-r2v' || model.modelCode === 'happyhorse-1.0-video-edit') {
+  if (model.modelCode === 'happyhorse-1.0-video-edit') {
     const imageSpecs = [
       ...parseNamedResourceSpecs(kwargs.refImageUrls, { valueKey: 'value', itemLabel: '参考图片地址' }),
       ...parseNamedResourceSpecs(kwargs.refImageFiles, { valueKey: 'value', itemLabel: '参考图片文件' }),
     ];
-    const videoSpecs = [
-      ...parseNamedResourceSpecs(kwargs.refVideoUrls, { valueKey: 'value', itemLabel: '参考视频地址' }),
-      ...parseNamedResourceSpecs(kwargs.refVideoFiles, { valueKey: 'value', itemLabel: '参考视频文件' }),
-    ];
+    const videoSpecs = collectAihubmixVideoSpecs(kwargs);
+    for (const spec of imageSpecs) {
+      await validateAihubmixReferenceSpec('image', spec, 'HappyHorse 参考图片');
+    }
+    for (const spec of videoSpecs) {
+      await validateAihubmixReferenceSpec('video', spec, 'HappyHorse 参考视频');
+    }
     const audioSpecs = [
       ...parseNamedResourceSpecs(kwargs.refAudioUrls, { valueKey: 'value', itemLabel: '参考音频地址' }),
       ...parseNamedResourceSpecs(kwargs.refAudioFiles, { valueKey: 'value', itemLabel: '参考音频文件' }),
@@ -7421,13 +7644,21 @@ cli({
     ensureModelSelector('model-options', kwargs);
     const model = await resolveModelSelection('generic', kwargs);
     if (model.externalProvider === 'aihubmix') {
-      const rows = [
-        { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "..."', allowedValues: '', 底层参数: 'prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填', 推荐CLI用法: '--prompt "..."', raw: JSON.stringify({ required: true }) },
-        { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '5, 10', 底层参数: 'seconds', 名称: '时长', 类型: 'EnumType', 约束: '传给 AiHubMix 的 seconds；HappyHorse 具体支持值以模型页为准', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
-        { paramKey: 'size', paramName: '分辨率', paramType: 'EnumType', cliFlag: '--size 1280x720', allowedValues: '1280x720, 720x1280, 960x960', 底层参数: 'size', 名称: '分辨率', 类型: 'EnumType', 约束: '默认按 ratio 映射；可直接传 --size', 推荐CLI用法: '--size 1280x720', raw: JSON.stringify({ provider: 'aihubmix' }) },
-        { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./a.webp', allowedValues: '', 底层参数: 'input_reference', 名称: '首帧/图片参考', 类型: 'UrlOrBase64', 约束: model.modelCode.endsWith('-i2v') ? '图生视频必填' : '按模型需要', 推荐CLI用法: '--frameUrl <url> / --frameFile ./a.webp', raw: JSON.stringify({ provider: 'aihubmix' }) },
-        { paramKey: 'extra_body.content', paramName: '多模态参考', paramType: 'ReferenceList', cliFlag: '--refImageUrls / --refVideoUrls / --refAudioUrls', allowedValues: 'image_url, video_url, audio_url', 底层参数: 'extra_body.content', 名称: '多模态参考', 类型: 'ReferenceList', 约束: 'r2v / video-edit 使用；本地文件会转 data URL', 推荐CLI用法: '--refVideoUrls <url>', raw: JSON.stringify({ provider: 'aihubmix' }) },
-      ];
+      const rows = model.modelCode === 'happyhorse-1.0-r2v'
+        ? [
+            { paramKey: 'input.prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "character1 在雨夜奔跑"', allowedValues: '', 底层参数: 'input.prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填；最多 5000 个非中文字符或 2500 个中文字符；character1/character2 按 media 顺序指代参考图', 推荐CLI用法: '--prompt "character1 在雨夜奔跑"', raw: JSON.stringify({ required: true }) },
+            { paramKey: 'input.media', paramName: '参考图', paramType: 'UrlList', cliFlag: '--refImageUrls "character1=https://example.com/a.jpg"', allowedValues: '1-9 images; JPEG/JPG/PNG/WEBP; HTTP/HTTPS URL', 底层参数: 'input.media', 名称: '参考图', 类型: 'UrlList', 约束: '必填 1-9 张公网图片 URL；短边 >= 400px；单张 <= 10MB', 推荐CLI用法: '--refImageUrls "character1=https://example.com/a.jpg"', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'parameters.resolution', paramName: '分辨率档位', paramType: 'EnumType', cliFlag: '--quality 1080P', allowedValues: '1080P, 720P', 底层参数: 'parameters.resolution', 名称: '分辨率档位', 类型: 'EnumType', 约束: '默认 1080P', 推荐CLI用法: '--quality 1080P', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'parameters.ratio', paramName: '视频比例', paramType: 'EnumType', cliFlag: '--ratio 16:9', allowedValues: '16:9, 9:16, 3:4, 4:3, 1:1', 底层参数: 'parameters.ratio', 名称: '视频比例', 类型: 'EnumType', 约束: '默认 16:9', 推荐CLI用法: '--ratio 16:9', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'parameters.duration', paramName: '时长', paramType: 'Integer', cliFlag: '--generatedTime 5', allowedValues: '3-15', 底层参数: 'parameters.duration', 名称: '时长', 类型: 'Integer', 约束: '单位秒；整数 3-15；默认 5', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
+          ]
+        : [
+            { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "..."', allowedValues: '', 底层参数: 'prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填', 推荐CLI用法: '--prompt "..."', raw: JSON.stringify({ required: true }) },
+            { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '2-15', 底层参数: 'seconds', 名称: '时长', 类型: 'EnumType', 约束: '传给 AiHubMix 的 seconds', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'size', paramName: '分辨率', paramType: 'EnumType', cliFlag: '--size 1280x720', allowedValues: '1280x720, 720x1280, 960x960, 960x720, 720x960', 底层参数: 'size', 名称: '分辨率', 类型: 'EnumType', 约束: '默认按 ratio 映射；可直接传 --size', 推荐CLI用法: '--size 1280x720', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./a.webp', allowedValues: '', 底层参数: 'input_reference', 名称: '首帧/图片参考', 类型: 'UrlOrBase64', 约束: model.modelCode.endsWith('-i2v') ? '图生视频必填；视频比例跟随原图' : '按模型需要', 推荐CLI用法: '--frameUrl <url> / --frameFile ./a.webp', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'extra_body.content', paramName: '多模态参考', paramType: 'ReferenceList', cliFlag: '--refVideoUrls <url>', allowedValues: 'video_url', 底层参数: 'extra_body.content', 名称: '多模态参考', 类型: 'ReferenceList', 约束: 'video-edit 使用；本地文件会转 data URL', 推荐CLI用法: '--refVideoUrls <url>', raw: JSON.stringify({ provider: 'aihubmix' }) },
+          ];
       printModelOptionSummary(model, null, rows, 'video');
       return rows;
     }
@@ -8415,6 +8646,7 @@ cli({
     { name: 'prompt', default: '', help: '全局视频提示词；描述整体动作、风格和镜头运动' },
     { name: 'ratio', help: '视频比例。先用 model-options 查看该模型可选值。示例: 16:9' },
     { name: 'quality', help: '分辨率档位。先用 model-options 查看该模型可选值。示例: 720' },
+    { name: 'resolution', help: '[AiHubMix] 分辨率档位。示例: 720P / 1080P；不传默认 1080P' },
     { name: 'size', help: '[AiHubMix] 直接传视频分辨率。示例: 1280x720 / 720x1280 / 960x960' },
     { name: 'generatedTime', help: '最终视频时长秒数。示例: 5' },
     { name: 'frameUrl', help: '[首尾帧模式] 现成首帧图片 URL；适合直接用线上图片做首帧' },
@@ -8497,6 +8729,7 @@ cli({
     { name: 'prompt', default: '', help: '全局视频提示词；描述整体动作、风格和镜头运动' },
     { name: 'ratio', help: '视频比例。先用 model-options 查看该模型可选值。示例: 16:9' },
     { name: 'quality', help: '分辨率档位。先用 model-options 查看该模型可选值。示例: 720' },
+    { name: 'resolution', help: '[AiHubMix] 分辨率档位。示例: 720P / 1080P；不传默认 1080P' },
     { name: 'size', help: '[AiHubMix] 直接传视频分辨率。示例: 1280x720 / 720x1280 / 960x960' },
     { name: 'generatedTime', help: '最终视频时长秒数。示例: 5、10' },
     { name: 'frameUrl', help: '[首尾帧模式] 现成首帧图片 URL；适合直接用线上图片做首帧' },
