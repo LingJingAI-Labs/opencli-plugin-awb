@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.14 - 2026-04-27
+
+- Hide backend-only model scene blacklist metadata from CLI model list `raw` output so `blackList` / `Anime_Script_*` does not mislead model selection.
+
 ## 0.1.13 - 2026-04-27
 
 - Align `happyhorse-1.0-r2v` with AiHubMix HappyHorse request shape: `input.prompt`, `input.media`, and `parameters`.

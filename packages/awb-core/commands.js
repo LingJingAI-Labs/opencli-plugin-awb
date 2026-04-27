@@ -3600,9 +3600,24 @@ function normalizeModelRows(payload) {
                 : '默认',
       模型组: modelGroupCode,
       成功率: formatSuccessRate(ext?.success_rate),
-      raw: JSON.stringify(item),
+      raw: JSON.stringify(sanitizeModelRawRecord(item)),
     };
   });
+}
+
+function sanitizeModelRawRecord(item = {}) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+  const {
+    modelUseScene: _modelUseScene,
+    modelUseScenes: _modelUseScenes,
+    useScene: _useScene,
+    sceneBlackList: _sceneBlackList,
+    sceneBlacklist: _sceneBlacklist,
+    blackList: _blackList,
+    blacklist: _blacklist,
+    ...rest
+  } = item;
+  return rest;
 }
 
 function videoModelSupportsPromptOnly(modelRow) {
