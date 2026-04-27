@@ -96,9 +96,9 @@ const AIHUBMIX_VIDEO_MODELS = [
     modelGroupCode: 'happyhorse-1.0-r2v',
     modelName: 'HappyHorse 1.0 参考生视频',
     frameFeature: '可首帧',
-    refFeature: '图/视频/音频',
+    refFeature: '图',
     supportsPromptOnly: false,
-    note: '通过 extra_body.content 传参考资源',
+    note: '通过 input.media 传 1-9 张公网参考图',
   },
   {
     modelCode: 'happyhorse-1.0-video-edit',
@@ -5573,6 +5573,15 @@ function aihubmixSizeFromRatio(ratio) {
 }
 
 function validateAihubmixVideoBasics(model, kwargs = {}) {
+  if (
+    trimToNull(kwargs.refAudioFiles) ||
+    trimToNull(kwargs.refAudioUrls) ||
+    trimToNull(kwargs.refAudiosJson) ||
+    trimToNull(kwargs.audio) ||
+    trimToNull(kwargs.needAudio)
+  ) {
+    throw new Error('HappyHorse 当前不支持音频/音色参考，请不要传 `--refAudioFiles` / `--refAudioUrls` / `--audio` / `--needAudio`。');
+  }
   const seconds = parseAihubmixSeconds({}, kwargs);
   const minSeconds = model.modelCode === 'happyhorse-1.0-r2v'
     ? AIHUBMIX_HAPPYHORSE_R2V_SECONDS_MIN
@@ -5766,14 +5775,9 @@ async function buildAihubmixVideoRequest(kwargs = {}) {
     for (const spec of videoSpecs) {
       await validateAihubmixReferenceSpec('video', spec, 'HappyHorse 参考视频');
     }
-    const audioSpecs = [
-      ...parseNamedResourceSpecs(kwargs.refAudioUrls, { valueKey: 'value', itemLabel: '参考音频地址' }),
-      ...parseNamedResourceSpecs(kwargs.refAudioFiles, { valueKey: 'value', itemLabel: '参考音频文件' }),
-    ];
     const content = (await Promise.all([
       ...imageSpecs.map((item) => aihubmixContentItem('image', item)),
       ...videoSpecs.map((item) => aihubmixContentItem('video', item)),
-      ...audioSpecs.map((item) => aihubmixContentItem('audio', item)),
     ])).filter(Boolean);
     if (model.modelCode === 'happyhorse-1.0-video-edit' && !videoSpecs.length) {
       throw new Error('happyhorse-1.0-video-edit 需要待编辑视频：传 `--refVideoUrls` 或 `--refVideoFiles`。');

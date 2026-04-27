@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.15 - 2026-04-27
+
+- Remove HappyHorse audio-reference claims and reject `--refAudio*` / `--audio` flags on AiHubMix HappyHorse video models.
+
 ## 0.1.14 - 2026-04-27
 
 - Hide backend-only model scene blacklist metadata from CLI model list `raw` output so `blackList` / `Anime_Script_*` does not mislead model selection.

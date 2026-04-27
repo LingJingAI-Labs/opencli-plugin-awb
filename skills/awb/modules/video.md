@@ -265,6 +265,8 @@ HappyHorse 暂未接入灵境 AWB 积分模型表时，可直接用 AiHubMix key
 
 `happyhorse-1.0-r2v` 走 AiHubMix 的 `input + parameters` 请求体：`input.prompt` 必填，`input.media` 必填且只接受 `reference_image`，`parameters.resolution` 支持 `1080P` / `720P`（默认 `1080P`），`parameters.ratio` 支持 `16:9` / `9:16` / `3:4` / `4:3` / `1:1`（默认 `16:9`），`parameters.duration` 为 3-15 秒整数（默认 5）。参考图限制：公网 HTTP/HTTPS URL，JPEG/JPG/PNG/WEBP，短边不低于 400px，单张不超过 10MB。
 
+HappyHorse 当前不支持音频 / 音色参考；不要传 `--refAudioFiles` / `--refAudioUrls` / `--audio` / `--needAudio`。需要控音色时改用 Seedance / 可灵等支持音频参考的 AWB 原生视频模型。
+
 ```bash
 # 文生视频
 "$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-t2v \
