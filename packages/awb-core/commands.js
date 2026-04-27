@@ -2494,7 +2494,11 @@ function normalizeAihubmixVideoModelRows() {
     ].filter(Boolean).join('；'),
     feeCalcType: 'AIHUBMIX',
     displayScope: '',
-    paramKeys: 'prompt,seconds,size,ratio,input_reference,extra_body',
+    paramKeys: item.modelCode === 'happyhorse-1.0-i2v'
+      ? 'prompt,seconds,input_reference'
+      : item.modelCode === 'happyhorse-1.0-r2v'
+        ? 'input.prompt,input.media,parameters.resolution,parameters.ratio,parameters.duration'
+        : 'prompt,seconds,size,ratio,input_reference,extra_body',
     模型: item.modelName,
     提供方: 'AiHubMix',
     帧模式: item.frameFeature,
@@ -3626,6 +3630,7 @@ function videoModelSupportsPromptOnly(modelRow) {
 
 function buildModelPreviewCommand(kind, modelRow) {
   const groupCode = modelRow?.modelGroupCode ?? '<modelGroupCode>';
+  const modelCode = String(modelRow?.modelCode ?? modelRow?.modelGroupCode ?? '');
   if (kind === 'image') {
     if (String(modelRow?.refFeature ?? '').includes('iref')) {
       return `${runtimeCommandPrefix()} image-create --modelGroupCode ${groupCode} --prompt "参考图里的角色在雨夜奔跑" --quality <quality> --ratio <ratio> --generateNum 1 --irefFiles "./a.webp" --dryRun true`;
@@ -3635,6 +3640,9 @@ function buildModelPreviewCommand(kind, modelRow) {
 
   if (videoModelSupportsPromptOnly(modelRow)) {
     return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "雨夜街头，人物缓慢走向镜头，电影感" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
+  }
+  if (modelCode.includes('happyhorse-1.0-i2v')) {
+    return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "保持原图主体，轻微运镜" --frameFile ./frame.webp --generatedTime <seconds> --dryRun true`;
   }
   if (trimToNull(modelRow?.['参考模式'])) {
     return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
@@ -5596,6 +5604,12 @@ function validateAihubmixVideoBasics(model, kwargs = {}) {
   if (model.modelCode === 'happyhorse-1.0-i2v' && ratio) {
     throw new Error('happyhorse-1.0-i2v 的视频比例跟随原图，不支持额外传 --ratio。');
   }
+  if (model.modelCode === 'happyhorse-1.0-i2v' && trimToNull(kwargs.size)) {
+    throw new Error('happyhorse-1.0-i2v 的视频尺寸/比例跟随原图，不支持额外传 --size。');
+  }
+  if (model.modelCode === 'happyhorse-1.0-i2v' && (trimToNull(kwargs.quality) || trimToNull(kwargs.resolution))) {
+    throw new Error('happyhorse-1.0-i2v 的输出规格跟随原图，不支持额外传 --quality / --resolution。');
+  }
 }
 
 function normalizeAihubmixResolution(kwargs = {}) {
@@ -5670,6 +5684,9 @@ async function buildAihubmixVideoRequestForEstimate(kwargs = {}) {
   }).catch(async (error) => {
     const model = selectedModel;
     const message = error instanceof Error ? error.message : String(error);
+    if (model.modelCode === 'happyhorse-1.0-i2v') {
+      throw error;
+    }
     if (!message.includes('需要首帧/参考图')) {
       throw error;
     }
@@ -7671,6 +7688,12 @@ cli({
             { paramKey: 'parameters.ratio', paramName: '视频比例', paramType: 'EnumType', cliFlag: '--ratio 16:9', allowedValues: '16:9, 9:16, 3:4, 4:3, 1:1', 底层参数: 'parameters.ratio', 名称: '视频比例', 类型: 'EnumType', 约束: '默认 16:9', 推荐CLI用法: '--ratio 16:9', raw: JSON.stringify({ provider: 'aihubmix' }) },
             { paramKey: 'parameters.duration', paramName: '时长', paramType: 'Integer', cliFlag: '--generatedTime 5', allowedValues: '3-15', 底层参数: 'parameters.duration', 名称: '时长', 类型: 'Integer', 约束: '单位秒；整数 3-15；默认 5', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
           ]
+        : model.modelCode === 'happyhorse-1.0-i2v'
+          ? [
+              { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "保持原图主体，轻微运镜"', allowedValues: '', 底层参数: 'prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填', 推荐CLI用法: '--prompt "保持原图主体，轻微运镜"', raw: JSON.stringify({ required: true }) },
+              { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '2-15', 底层参数: 'seconds', 名称: '时长', 类型: 'EnumType', 约束: '单位秒；2-15；默认 5', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
+              { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./frame.webp', allowedValues: 'jpeg, jpg, png, bmp, webp', 底层参数: 'input_reference', 名称: '首帧/图片参考', 类型: 'UrlOrBase64', 约束: '必填；输出视频比例跟随原图；不要传 --ratio / --size / --quality', 推荐CLI用法: '--frameFile ./frame.webp', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            ]
         : [
             { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "..."', allowedValues: '', 底层参数: 'prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填', 推荐CLI用法: '--prompt "..."', raw: JSON.stringify({ required: true }) },
             { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '2-15', 底层参数: 'seconds', 名称: '时长', 类型: 'EnumType', 约束: '传给 AiHubMix 的 seconds', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },

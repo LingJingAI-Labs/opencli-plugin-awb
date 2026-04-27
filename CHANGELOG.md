@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.16 - 2026-04-27
+
+- Treat `happyhorse-1.0-i2v` as source-ratio image-to-video: model hints and examples no longer suggest `--ratio`, `--size`, or `--quality`, and those flags are rejected for i2v.
+
 ## 0.1.15 - 2026-04-27
 
 - Remove HappyHorse audio-reference claims and reject `--refAudio*` / `--audio` flags on AiHubMix HappyHorse video models.

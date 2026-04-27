@@ -263,6 +263,8 @@ HappyHorse 暂未接入灵境 AWB 积分模型表时，可直接用 AiHubMix key
 - `happyhorse-1.0-r2v`：参考图生视频，用 `--refImageUrls` 传 1-9 张公网图片 URL；prompt 里用 `character1`、`character2` 按图片顺序指代
 - `happyhorse-1.0-video-edit`：视频编辑，必须传 `--refVideoUrls` 或 `--refVideoFiles`
 
+`happyhorse-1.0-i2v` 的输出比例跟随输入图，不要让用户选择 `16:9` / `9:16`，也不要传 `--ratio` / `--size` / `--quality` / `--resolution`。竖屏直播截图就直接作为 `--frameFile` / `--frameUrl` 传入，CLI 会把它作为 `input_reference`。
+
 `happyhorse-1.0-r2v` 走 AiHubMix 的 `input + parameters` 请求体：`input.prompt` 必填，`input.media` 必填且只接受 `reference_image`，`parameters.resolution` 支持 `1080P` / `720P`（默认 `1080P`），`parameters.ratio` 支持 `16:9` / `9:16` / `3:4` / `4:3` / `1:1`（默认 `16:9`），`parameters.duration` 为 3-15 秒整数（默认 5）。参考图限制：公网 HTTP/HTTPS URL，JPEG/JPG/PNG/WEBP，短边不低于 400px，单张不超过 10MB。
 
 HappyHorse 当前不支持音频 / 音色参考；不要传 `--refAudioFiles` / `--refAudioUrls` / `--audio` / `--needAudio`。需要控音色时改用 Seedance / 可灵等支持音频参考的 AWB 原生视频模型。
@@ -276,7 +278,7 @@ HappyHorse 当前不支持音频 / 音色参考；不要传 `--refAudioFiles` / 
 # 图生视频
 "$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-i2v \
   --prompt "保持首帧人物，微风吹动头发，镜头轻微推进" \
-  --frameFile ./frame.webp --generatedTime 5 --size 1280x720 -f json
+  --frameFile ./frame.webp --generatedTime 5 -f json
 
 # 参考图生视频
 "$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-r2v \
