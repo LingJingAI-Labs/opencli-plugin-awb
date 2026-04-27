@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11 - 2026-04-27
+
+- Add AiHubMix HappyHorse external video model support for `happyhorse-1.0-t2v`, `happyhorse-1.0-i2v`, `happyhorse-1.0-r2v`, and `happyhorse-1.0-video-edit`.
+- Let `video-create`, `video-fee`, `video-models`, and `model-options` understand HappyHorse as an external provider that reads `AIHUBMIX_API_KEY` and does not consume AWB project-group points.
+- Add `aihubmix-video-status` and `aihubmix-video-download` for polling `/v1/videos/{video_id}` and downloading `/content`.
+
 ## 0.1.10 - 2026-04-27
 
 - Add `task-duration-stats` to query the task execution statistics dashboard for best-effort average duration estimates by `bizType`, `platformType`, `modelUseType`, and `channel`.

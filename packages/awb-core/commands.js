@@ -39,8 +39,8 @@ import {
 } from './common.js';
 
 const SITE = 'awb';
-const TERMINAL_TASK_STATES = new Set(['SUCCESS', 'FAIL', 'FAILED', 'ERROR', 'CANCEL', 'CANCELED', 'CANCELLED', 'TIMEOUT']);
-const FEED_TASK_TYPES = ['IMAGE_CREATE', 'VIDEO_GROUP', 'VIDEO_CREATE', 'IMAGE_EDIT', 'LIP_SYNC'];
+const TERMINAL_TASK_STATES = new Set(['SUCCESS', 'COMPLETED', 'DONE', 'SUCCEEDED', 'FAIL', 'FAILED', 'ERROR', 'CANCEL', 'CANCELED', 'CANCELLED', 'TIMEOUT']);
+const FEED_TASK_TYPES = ['IMAGE_CREATE', 'VIDEO_GROUP', 'VIDEO_CREATE', 'IMAGE_EDIT', 'LIP_SYNC', 'AIHUBMIX_VIDEO'];
 const POINT_PACKAGE_CACHE_PATH = path.join(os.homedir(), '.opencli', 'awb-point-packages.json');
 const POINT_RECORD_CACHE_PATH = path.join(os.homedir(), '.opencli', 'awb-point-records.json');
 const FEISHU_ORIGIN = 'https://lingjingai.feishu.cn';
@@ -50,6 +50,45 @@ const AWB_INVOICE_FORM_URL = `${FEISHU_ORIGIN}/share/base/form/${AWB_INVOICE_SHA
 const AWB_INVOICE_UPLOAD_MOUNT_POINT = 'bitable_tmp_point';
 const TASK_EXEC_STAT_ORIGIN = 'https://monitor-statistics-llm.lingjingai.cn';
 const ASSET_EDIT_ORIGIN = 'https://asset-edit.lingjingai.cn';
+const AIHUBMIX_ORIGIN = 'https://aihubmix.com';
+const AIHUBMIX_VIDEO_MODELS = [
+  {
+    modelCode: 'happyhorse-1.0-t2v',
+    modelGroupCode: 'happyhorse-1.0-t2v',
+    modelName: 'HappyHorse 1.0 文生视频',
+    frameFeature: '无',
+    refFeature: '无',
+    supportsPromptOnly: true,
+    note: 'AiHubMix 外部计费，不走 AWB 积分',
+  },
+  {
+    modelCode: 'happyhorse-1.0-i2v',
+    modelGroupCode: 'happyhorse-1.0-i2v',
+    modelName: 'HappyHorse 1.0 图生视频',
+    frameFeature: '首帧',
+    refFeature: '图',
+    supportsPromptOnly: false,
+    note: '通过 input_reference 传图片 URL/base64',
+  },
+  {
+    modelCode: 'happyhorse-1.0-r2v',
+    modelGroupCode: 'happyhorse-1.0-r2v',
+    modelName: 'HappyHorse 1.0 参考生视频',
+    frameFeature: '可首帧',
+    refFeature: '图/视频/音频',
+    supportsPromptOnly: false,
+    note: '通过 extra_body.content 传参考资源',
+  },
+  {
+    modelCode: 'happyhorse-1.0-video-edit',
+    modelGroupCode: 'happyhorse-1.0-video-edit',
+    modelName: 'HappyHorse 1.0 视频编辑',
+    frameFeature: '无',
+    refFeature: '视频',
+    supportsPromptOnly: false,
+    note: '通过 extra_body.content 传待编辑视频',
+  },
+];
 const DRY_RUN_ARG = {
   name: 'dryRun',
   help: '仅预览请求，不真正执行写操作。示例: --dryRun true',
@@ -2397,6 +2436,56 @@ function normalizeFeedTaskType(taskType) {
   return taskType === 'VIDEO_CREATE' ? 'VIDEO_GROUP' : taskType;
 }
 
+function findAihubmixVideoModel(modelCodeOrGroupCode) {
+  const key = normalizeCodeKey(modelCodeOrGroupCode);
+  if (!key) return null;
+  return AIHUBMIX_VIDEO_MODELS.find((item) =>
+    normalizeCodeKey(item.modelCode) === key ||
+    normalizeCodeKey(item.modelGroupCode) === key ||
+    normalizeCodeKey(item.modelName).includes(key)
+  ) ?? null;
+}
+
+function isAihubmixVideoModelSelector(kwargs = {}) {
+  return Boolean(findAihubmixVideoModel(kwargs.modelGroupCode) || findAihubmixVideoModel(kwargs.modelCode));
+}
+
+function normalizeAihubmixVideoModelRows() {
+  return AIHUBMIX_VIDEO_MODELS.map((item) => ({
+    ...item,
+    provider: 'AiHubMix',
+    groupHint: '外部',
+    enabled: true,
+    modelStatus: 'external',
+    pointNo: null,
+    taskQueueNum: null,
+    successRate: null,
+    successRatePct: null,
+    successCount: null,
+    failCount: null,
+    totalSuccessCount: null,
+    totalFailCount: null,
+    extraFeatures: '外部计费 | async',
+    featureSummary: [
+      item.frameFeature ? `帧:${item.frameFeature}` : null,
+      item.refFeature ? `参考:${item.refFeature}` : null,
+      'AiHubMix外部计费',
+    ].filter(Boolean).join('；'),
+    feeCalcType: 'AIHUBMIX',
+    displayScope: '',
+    paramKeys: 'prompt,seconds,size,ratio,input_reference,extra_body',
+    模型: item.modelName,
+    提供方: 'AiHubMix',
+    帧模式: item.frameFeature,
+    参考模式: item.refFeature,
+    特色能力: '外部计费 | async',
+    通道: '外部',
+    模型组: item.modelGroupCode,
+    成功率: null,
+    raw: JSON.stringify(item),
+  }));
+}
+
 function formatSuccessRate(value) {
   const numeric = toNumberOrNull(value);
   if (numeric == null) return null;
@@ -2856,6 +2945,18 @@ async function resolveModelSelection(kind, kwargs = {}) {
 
   if (!rawModelCode && !rawModelGroupCode) {
     throw new Error('缺少模型标识：至少提供 `--modelGroupCode`；也可提供 `--modelCode` 后再由 CLI 帮你定位可选分组。');
+  }
+
+  const externalAihubmixModel = kind === 'video' || kind === 'generic'
+    ? (findAihubmixVideoModel(rawModelGroupCode) ?? findAihubmixVideoModel(rawModelCode))
+    : null;
+  if (externalAihubmixModel) {
+    return {
+      ...externalAihubmixModel,
+      kind: 'video',
+      provider: 'AiHubMix',
+      externalProvider: 'aihubmix',
+    };
   }
 
   const inferredKind = kind === 'generic' ? inferModelKind(rawModelCode, rawModelGroupCode) : kind;
@@ -3888,6 +3989,9 @@ function taskStatusLabel(value) {
     PROCESSING: '处理中',
     RUNNING: '处理中',
     SUCCESS: '成功',
+    COMPLETED: '成功',
+    DONE: '成功',
+    SUCCEEDED: '成功',
     FAILED: '失败',
     FAIL: '失败',
     CANCELED: '已取消',
@@ -4009,6 +4113,18 @@ function presentTaskCreateResult(result) {
     projectPointRemainingAfter: '提交后项目组剩余',
     projectGroupNo: '项目组编号',
     firstResultUrl: '首个结果',
+  });
+}
+
+function presentAihubmixVideoStatus(result) {
+  return withAliases(result, {
+    taskId: '任务ID',
+    taskStatus: '任务状态',
+    modelGroupCode: '模型组',
+    firstResultUrl: '下载接口',
+    outputFile: '输出文件',
+    timedOut: '是否超时',
+    errorMsg: '错误',
   });
 }
 
@@ -4427,6 +4543,7 @@ function buildVideoBatchDefaults(kwargs) {
     prompt: kwargs.prompt ?? null,
     ratio: kwargs.ratio ?? null,
     quality: kwargs.quality ?? null,
+    size: kwargs.size ?? null,
     generatedTime: kwargs.generatedTime ?? null,
     frameText: kwargs.frameText ?? null,
     frameUrl: kwargs.frameUrl ?? null,
@@ -4452,6 +4569,9 @@ function buildVideoBatchDefaults(kwargs) {
     framesJson: kwargs.framesJson ?? null,
     richTaskPrompt: kwargs.richTaskPrompt ?? null,
     promptParamsJson: kwargs.promptParamsJson ?? null,
+    aihubmixApiKey: kwargs.aihubmixApiKey ?? null,
+    aihubmixRequestJson: kwargs.aihubmixRequestJson ?? null,
+    aihubmixExtraBodyJson: kwargs.aihubmixExtraBodyJson ?? null,
   };
 }
 
@@ -5079,6 +5199,16 @@ async function createImageTask(kwargs) {
 }
 
 async function estimateVideoFee(kwargs) {
+  if (isAihubmixVideoModelSelector(kwargs)) {
+    const model = await resolveModelSelection('video', kwargs);
+    return {
+      provider: 'aihubmix',
+      modelCode: model.modelCode,
+      modelGroupCode: model.modelGroupCode,
+      pointCost: null,
+      billingNote: 'AiHubMix 外部计费，不消耗 AWB/灵境积分；实际成本由 AIHUBMIX_API_KEY 所属项目承担。',
+    };
+  }
   printRuntimeNote(['[AWB] 正在计算生视频积分...']);
   const { model, resolvedKwargs, promptParams, taskPrompt, uploads } = await resolveVideoPromptParams(kwargs);
   const [payload, resolvedProjectGroupNo] = await Promise.all([
@@ -5106,6 +5236,9 @@ async function estimateVideoFee(kwargs) {
 }
 
 async function createVideoTask(kwargs) {
+  if (isAihubmixVideoModelSelector(kwargs)) {
+    return createAihubmixVideoTask(kwargs);
+  }
   const startedAt = Date.now();
   const projectGroupNo = await resolveProjectGroupNo(kwargs.projectGroupNo);
   try {
@@ -5174,8 +5307,304 @@ async function createVideoTask(kwargs) {
   }
 }
 
+function resolveAihubmixApiKey(kwargs = {}) {
+  const direct = trimToNull(kwargs.aihubmixApiKey);
+  if (direct) return direct;
+  for (const envName of ['AIHUBMIX_API_KEY', 'AIHUBMIX_KEY', 'AIHUBMIX_TOKEN']) {
+    const value = trimToNull(process.env[envName]);
+    if (value) return value;
+  }
+  throw new Error('缺少 AiHubMix API Key。请设置 AIHUBMIX_API_KEY，或传 `--aihubmixApiKey <key>`。');
+}
+
+function aihubmixHeaders(kwargs = {}) {
+  return {
+    Authorization: `Bearer ${resolveAihubmixApiKey(kwargs)}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function aihubmixFetch(pathname, options = {}) {
+  const url = new URL(pathname, trimToNull(options.baseUrl) ?? process.env.AIHUBMIX_BASE_URL ?? AIHUBMIX_ORIGIN);
+  const method = options.method ?? 'GET';
+  const response = await fetch(url, {
+    method,
+    headers: method === 'GET'
+      ? { Authorization: `Bearer ${resolveAihubmixApiKey(options.kwargs)}` }
+      : aihubmixHeaders(options.kwargs),
+    body: method === 'GET' ? undefined : JSON.stringify(options.body ?? {}),
+  });
+  const contentType = response.headers.get('content-type') ?? '';
+  const payload = contentType.includes('application/json') ? await response.json().catch(() => null) : null;
+  if (!response.ok) {
+    const message =
+      payload?.error?.message ??
+      payload?.message ??
+      payload?.detail ??
+      `${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+  return payload ?? response;
+}
+
+function mimeTypeFromPath(filePath) {
+  const ext = path.extname(String(filePath ?? '')).toLowerCase();
+  return {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.webm': 'video/webm',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+  }[ext] ?? 'application/octet-stream';
+}
+
+async function fileToDataUrl(filePath) {
+  const resolvedPath = path.resolve(filePath);
+  const bytes = await fs.readFile(resolvedPath);
+  return `data:${mimeTypeFromPath(resolvedPath)};base64,${bytes.toString('base64')}`;
+}
+
+async function resolveAihubmixReferenceValue(spec, fallbackFile) {
+  const rawValue = trimToNull(spec?.value ?? spec?.url ?? spec?.file ?? fallbackFile);
+  if (!rawValue) return null;
+  if (/^https?:\/\//i.test(rawValue) || /^data:/i.test(rawValue)) return rawValue;
+  return fileToDataUrl(rawValue);
+}
+
+async function firstAihubmixImageReference(kwargs) {
+  const imageSpecs = [
+    ...parseNamedResourceSpecs(kwargs.refImageUrls, { valueKey: 'value', itemLabel: '参考图片地址' }),
+    ...parseNamedResourceSpecs(kwargs.refImageFiles, { valueKey: 'value', itemLabel: '参考图片文件' }),
+    ...parseNamedResourceSpecs(parseJsonArg(kwargs.refImagesJson, []), { valueKey: 'value', itemLabel: '参考图片 JSON' }),
+  ];
+  const frameSpec = trimToNull(kwargs.frameUrl ?? kwargs.frameFile)
+    ? [{ value: kwargs.frameUrl ?? kwargs.frameFile }]
+    : [];
+  for (const spec of [...frameSpec, ...imageSpecs]) {
+    const value = await resolveAihubmixReferenceValue(spec);
+    if (value) return value;
+  }
+  return null;
+}
+
+async function aihubmixContentItem(kind, spec) {
+  const value = await resolveAihubmixReferenceValue(spec);
+  if (!value) return null;
+  const type = kind === 'video' ? 'video_url' : kind === 'audio' ? 'audio_url' : 'image_url';
+  const role = kind === 'video' ? 'reference_video' : kind === 'audio' ? 'reference_audio' : 'reference_image';
+  return {
+    type,
+    role,
+    [type]: { url: value },
+  };
+}
+
+async function buildAihubmixVideoRequest(kwargs = {}) {
+  const model = await resolveModelSelection('video', kwargs);
+  const prompt = trimToNull(kwargs.prompt ?? kwargs.frameText);
+  if (!prompt) {
+    throw new Error('HappyHorse 视频生成需要 `--prompt`。');
+  }
+  const seconds = trimToNull(kwargs.generatedTime) ?? trimToNull(kwargs.seconds) ?? '5';
+  const size =
+    trimToNull(kwargs.size) ??
+    (trimToNull(kwargs.quality) && String(kwargs.quality).includes('x') ? trimToNull(kwargs.quality) : null) ??
+    (trimToNull(kwargs.ratio) === '9:16' ? '720x1280' : trimToNull(kwargs.ratio) === '1:1' ? '960x960' : '1280x720');
+  const body = {
+    model: model.modelCode,
+    prompt,
+    seconds,
+    size,
+  };
+  const ratio = trimToNull(kwargs.ratio);
+  if (ratio && !String(size).includes('x')) body.ratio = ratio;
+
+  const extraBody = parseJsonArg(kwargs.aihubmixExtraBodyJson, null);
+  if (extraBody && typeof extraBody === 'object' && !Array.isArray(extraBody)) {
+    body.extra_body = extraBody;
+  }
+
+  if (model.modelCode === 'happyhorse-1.0-i2v') {
+    const inputReference = await firstAihubmixImageReference(kwargs);
+    if (!inputReference) {
+      throw new Error('happyhorse-1.0-i2v 需要首帧/参考图：传 `--frameUrl` / `--frameFile` / `--refImageUrls` / `--refImageFiles`。');
+    }
+    body.input_reference = inputReference;
+  }
+
+  if (model.modelCode === 'happyhorse-1.0-r2v' || model.modelCode === 'happyhorse-1.0-video-edit') {
+    const imageSpecs = [
+      ...parseNamedResourceSpecs(kwargs.refImageUrls, { valueKey: 'value', itemLabel: '参考图片地址' }),
+      ...parseNamedResourceSpecs(kwargs.refImageFiles, { valueKey: 'value', itemLabel: '参考图片文件' }),
+    ];
+    const videoSpecs = [
+      ...parseNamedResourceSpecs(kwargs.refVideoUrls, { valueKey: 'value', itemLabel: '参考视频地址' }),
+      ...parseNamedResourceSpecs(kwargs.refVideoFiles, { valueKey: 'value', itemLabel: '参考视频文件' }),
+    ];
+    const audioSpecs = [
+      ...parseNamedResourceSpecs(kwargs.refAudioUrls, { valueKey: 'value', itemLabel: '参考音频地址' }),
+      ...parseNamedResourceSpecs(kwargs.refAudioFiles, { valueKey: 'value', itemLabel: '参考音频文件' }),
+    ];
+    const content = (await Promise.all([
+      ...imageSpecs.map((item) => aihubmixContentItem('image', item)),
+      ...videoSpecs.map((item) => aihubmixContentItem('video', item)),
+      ...audioSpecs.map((item) => aihubmixContentItem('audio', item)),
+    ])).filter(Boolean);
+    if (model.modelCode === 'happyhorse-1.0-video-edit' && !videoSpecs.length) {
+      throw new Error('happyhorse-1.0-video-edit 需要待编辑视频：传 `--refVideoUrls` 或 `--refVideoFiles`。');
+    }
+    if (content.length) {
+      body.extra_body = {
+        ...(body.extra_body ?? {}),
+        content: [
+          ...(Array.isArray(body.extra_body?.content) ? body.extra_body.content : []),
+          ...content,
+        ],
+      };
+    }
+  }
+
+  const override = parseJsonArg(kwargs.aihubmixRequestJson, null);
+  return {
+    model,
+    request: override && typeof override === 'object' && !Array.isArray(override)
+      ? { ...body, ...override }
+      : body,
+  };
+}
+
+function normalizeAihubmixVideoStatus(payload = {}, extra = {}) {
+  const taskId = payload.id ?? payload.video_id ?? extra.taskId ?? null;
+  const status = payload.status ?? null;
+  const error = payload.error?.message ?? payload.error ?? payload.last_error?.message ?? null;
+  return {
+    provider: 'aihubmix',
+    taskId,
+    taskStatus: status ? String(status).toUpperCase() : null,
+    modelName: payload.model ?? extra.modelName ?? null,
+    modelCode: payload.model ?? extra.modelCode ?? null,
+    modelGroupCode: payload.model ?? extra.modelGroupCode ?? null,
+    firstResultUrl: taskId ? `${AIHUBMIX_ORIGIN}/v1/videos/${taskId}/content` : null,
+    nextCommand: taskId ? `${runtimeCommandPrefix()} aihubmix-video-status --taskId ${taskId} --waitSeconds 300` : null,
+    downloadCommand: taskId ? `${runtimeCommandPrefix()} aihubmix-video-download --taskId ${taskId} --outputFile ./output.mp4` : null,
+    errorMsg: typeof error === 'string' ? error : error ? JSON.stringify(error) : null,
+    raw: JSON.stringify(payload),
+    ...extra,
+  };
+}
+
+async function fetchAihubmixVideoStatus(kwargs = {}) {
+  const taskId = trimToNull(kwargs.taskId);
+  if (!taskId) throw new Error('请提供 `--taskId <video_id>`。');
+  const payload = await aihubmixFetch(`/v1/videos/${taskId}`, { kwargs });
+  return normalizeAihubmixVideoStatus(payload, { taskId });
+}
+
+async function waitForAihubmixVideo(kwargs = {}) {
+  const waitSeconds = Math.max(0, toInt(kwargs.waitSeconds, 0));
+  const pollIntervalMs = Math.max(1000, toInt(kwargs.pollIntervalMs, 5000));
+  const deadline = Date.now() + waitSeconds * 1000;
+  let result = null;
+  do {
+    result = await fetchAihubmixVideoStatus(kwargs);
+    const status = String(result.taskStatus ?? '').toUpperCase();
+    if (TERMINAL_TASK_STATES.has(status)) return { ...result, timedOut: false };
+    if (waitSeconds <= 0 || Date.now() >= deadline) break;
+    await sleep(pollIntervalMs);
+  } while (true);
+  return { ...(result ?? { taskId: kwargs.taskId }), timedOut: waitSeconds > 0 };
+}
+
+async function createAihubmixVideoTask(kwargs = {}) {
+  printRuntimeNote([
+    '[AWB] 当前模型走 AiHubMix 外部计费，不消耗 AWB/灵境积分。',
+    '[AWB] 正在提交 AiHubMix 视频任务...',
+  ]);
+  const { model, request } = await buildAihubmixVideoRequest(kwargs);
+  const payload = await aihubmixFetch('/v1/videos', {
+    method: 'POST',
+    kwargs,
+    body: request,
+  });
+  const normalized = normalizeAihubmixVideoStatus(payload, {
+    modelName: model.modelName,
+    modelCode: model.modelCode,
+    modelGroupCode: model.modelGroupCode,
+    pointCost: null,
+    billingNote: 'AiHubMix 外部计费，不消耗 AWB/灵境积分',
+    request: JSON.stringify(request),
+  });
+  if (toInt(kwargs.waitSeconds, 0) > 0 && normalized.taskId) {
+    return waitForAihubmixVideo({ ...kwargs, taskId: normalized.taskId });
+  }
+  return normalized;
+}
+
+async function previewAihubmixVideoCreate(kwargs = {}) {
+  const { model, request } = await buildAihubmixVideoRequest({
+    ...kwargs,
+    frameFile: null,
+    refImageFiles: null,
+    refVideoFiles: null,
+    refAudioFiles: null,
+  }).catch(async () => {
+    const model = await resolveModelSelection('video', kwargs);
+    return {
+      model,
+      request: {
+        model: model.modelCode,
+        prompt: trimToNull(kwargs.prompt ?? kwargs.frameText) ?? '<prompt>',
+        seconds: trimToNull(kwargs.generatedTime) ?? '5',
+        size: trimToNull(kwargs.size) ?? '1280x720',
+      },
+    };
+  });
+  return {
+    dryRun: true,
+    action: 'video-create',
+    provider: 'aihubmix',
+    modelCode: model.modelCode,
+    modelGroupCode: model.modelGroupCode,
+    pointCost: null,
+    billingNote: 'AiHubMix 外部计费，不消耗 AWB/灵境积分',
+    request,
+    raw: JSON.stringify({ request }),
+  };
+}
+
+async function downloadAihubmixVideo(kwargs = {}) {
+  const taskId = trimToNull(kwargs.taskId);
+  if (!taskId) throw new Error('请提供 `--taskId <video_id>`。');
+  const outputFile = path.resolve(trimToNull(kwargs.outputFile) ?? `${taskId}.mp4`);
+  const response = await fetch(new URL(`/v1/videos/${taskId}/content`, process.env.AIHUBMIX_BASE_URL ?? AIHUBMIX_ORIGIN), {
+    headers: { Authorization: `Bearer ${resolveAihubmixApiKey(kwargs)}` },
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error?.message ?? payload?.message ?? `${response.status} ${response.statusText}`);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  await fs.mkdir(path.dirname(outputFile), { recursive: true });
+  await fs.writeFile(outputFile, bytes);
+  return {
+    provider: 'aihubmix',
+    taskId,
+    outputFile,
+    sizeBytes: bytes.length,
+  };
+}
+
 async function fetchTaskFeed(kwargs) {
   const feedTaskType = normalizeFeedTaskType(kwargs.taskType || 'IMAGE_CREATE');
+  if (feedTaskType === 'AIHUBMIX_VIDEO') {
+    throw new Error('AiHubMix 外部任务没有 AWB 任务列表；请用 `aihubmix-video-status --taskId <video_id>` 或 `task-wait --taskType AIHUBMIX_VIDEO --taskId <video_id>`。');
+  }
   const projectGroupNo = await resolveProjectGroupNo(kwargs.projectGroupNo);
   const minTime = toInt(kwargs.minTime, Date.now());
   const pageSize = toInt(kwargs.pageSize, 20);
@@ -5347,6 +5776,9 @@ async function buildUsageSummary(kwargs) {
 }
 
 async function findTaskOnce(kwargs) {
+  if (normalizeFeedTaskType(kwargs.taskType) === 'AIHUBMIX_VIDEO') {
+    return fetchAihubmixVideoStatus(kwargs);
+  }
   const rows = await fetchTaskFeed({
     taskType: kwargs.taskType,
     projectGroupNo: kwargs.projectGroupNo,
@@ -5868,6 +6300,9 @@ async function previewImageCreate(kwargs) {
 }
 
 async function previewVideoCreate(kwargs) {
+  if (isAihubmixVideoModelSelector(kwargs)) {
+    return previewAihubmixVideoCreate(kwargs);
+  }
   const previewResolved = await resolveVideoPromptParams({
     ...kwargs,
     skipUploads: true,
@@ -6917,6 +7352,17 @@ cli({
   func: async (_page, kwargs) => {
     ensureModelSelector('model-options', kwargs);
     const model = await resolveModelSelection('generic', kwargs);
+    if (model.externalProvider === 'aihubmix') {
+      const rows = [
+        { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "..."', allowedValues: '', 底层参数: 'prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填', 推荐CLI用法: '--prompt "..."', raw: JSON.stringify({ required: true }) },
+        { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '5, 10', 底层参数: 'seconds', 名称: '时长', 类型: 'EnumType', 约束: '传给 AiHubMix 的 seconds；HappyHorse 具体支持值以模型页为准', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
+        { paramKey: 'size', paramName: '分辨率', paramType: 'EnumType', cliFlag: '--size 1280x720', allowedValues: '1280x720, 720x1280, 960x960', 底层参数: 'size', 名称: '分辨率', 类型: 'EnumType', 约束: '默认按 ratio 映射；可直接传 --size', 推荐CLI用法: '--size 1280x720', raw: JSON.stringify({ provider: 'aihubmix' }) },
+        { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./a.webp', allowedValues: '', 底层参数: 'input_reference', 名称: '首帧/图片参考', 类型: 'UrlOrBase64', 约束: model.modelCode.endsWith('-i2v') ? '图生视频必填' : '按模型需要', 推荐CLI用法: '--frameUrl <url> / --frameFile ./a.webp', raw: JSON.stringify({ provider: 'aihubmix' }) },
+        { paramKey: 'extra_body.content', paramName: '多模态参考', paramType: 'ReferenceList', cliFlag: '--refImageUrls / --refVideoUrls / --refAudioUrls', allowedValues: 'image_url, video_url, audio_url', 底层参数: 'extra_body.content', 名称: '多模态参考', 类型: 'ReferenceList', 约束: 'r2v / video-edit 使用；本地文件会转 data URL', 推荐CLI用法: '--refVideoUrls <url>', raw: JSON.stringify({ provider: 'aihubmix' }) },
+      ];
+      printModelOptionSummary(model, null, rows, 'video');
+      return rows;
+    }
     const kind = inferModelKind(model.modelCode, model.modelGroupCode);
     const modelDefinition = await fetchResolvedModelDefinition(model, '');
     const payload = await apiFetch('/api/resource/model/config/options', {
@@ -7016,7 +7462,10 @@ cli({
             method: 'GET',
             query: { taskType: 'VIDEO_GROUP' },
           });
-    const rows = filterModelRows(normalizeModelRows(payload), { ...kwargs, viewerPermission });
+    const rows = filterModelRows([
+      ...normalizeModelRows(payload),
+      ...normalizeAihubmixVideoModelRows(),
+    ], { ...kwargs, viewerPermission });
     printModelListHint('video', rows);
     return rows;
   },
@@ -7602,6 +8051,50 @@ cli({
 
 cli({
   site: SITE,
+  name: 'aihubmix-video-status',
+  description: commandHelp('查询 AiHubMix 视频任务', {
+    examples: [
+      'opencli awb aihubmix-video-status --taskId <video_id> -f json',
+      'opencli awb aihubmix-video-status --taskId <video_id> --waitSeconds 300 -f json',
+    ],
+    hint: '用于 HappyHorse / AiHubMix 外部视频任务。默认读取 AIHUBMIX_API_KEY。',
+  }),
+  browser: false,
+  args: [
+    { name: 'taskId', required: true, help: 'AiHubMix 返回的 video_id' },
+    { name: 'waitSeconds', type: 'int', default: 0 },
+    { name: 'pollIntervalMs', type: 'int', default: 5000 },
+    { name: 'aihubmixApiKey', help: 'API Key；默认读 AIHUBMIX_API_KEY / AIHUBMIX_KEY / AIHUBMIX_TOKEN' },
+  ],
+  columns: ['任务ID', '任务状态', '模型组', '下载接口', '是否超时', '错误'],
+  func: async (_page, kwargs) => presentAihubmixVideoStatus(await waitForAihubmixVideo(kwargs)),
+});
+
+cli({
+  site: SITE,
+  name: 'aihubmix-video-download',
+  description: commandHelp('下载 AiHubMix 视频结果', {
+    examples: [
+      'opencli awb aihubmix-video-download --taskId <video_id> --outputFile ./output.mp4',
+    ],
+    hint: '会调用 `/v1/videos/{video_id}/content` 并写入本地文件。默认读取 AIHUBMIX_API_KEY。',
+  }),
+  browser: false,
+  args: [
+    { name: 'taskId', required: true, help: 'AiHubMix 返回的 video_id' },
+    { name: 'outputFile', default: 'output.mp4', help: '输出 mp4 文件路径' },
+    { name: 'aihubmixApiKey', help: 'API Key；默认读 AIHUBMIX_API_KEY / AIHUBMIX_KEY / AIHUBMIX_TOKEN' },
+  ],
+  columns: ['任务ID', '输出文件', '大小'],
+  func: async (_page, kwargs) => withAliases(await downloadAihubmixVideo(kwargs), {
+    taskId: '任务ID',
+    outputFile: '输出文件',
+    sizeBytes: '大小',
+  }),
+});
+
+cli({
+  site: SITE,
   name: 'image-fee',
   description: commandHelp('高级预算：估算生图积分', {
     examples: [
@@ -7854,6 +8347,7 @@ cli({
     { name: 'prompt', default: '', help: '全局视频提示词；描述整体动作、风格和镜头运动' },
     { name: 'ratio', help: '视频比例。先用 model-options 查看该模型可选值。示例: 16:9' },
     { name: 'quality', help: '分辨率档位。先用 model-options 查看该模型可选值。示例: 720' },
+    { name: 'size', help: '[AiHubMix] 直接传视频分辨率。示例: 1280x720 / 720x1280 / 960x960' },
     { name: 'generatedTime', help: '最终视频时长秒数。示例: 5' },
     { name: 'frameUrl', help: '[首尾帧模式] 现成首帧图片 URL；适合直接用线上图片做首帧' },
     { name: 'frameFile', help: '[首尾帧模式] 本地首帧图片路径；CLI 会先自动上传再使用。示例: ./frame.webp' },
@@ -7878,6 +8372,9 @@ cli({
     { name: 'framesJson', help: '高级用法：直接覆盖整个 frames 数组 JSON；只有做多帧精细控制时再用' },
     { name: 'richTaskPrompt', default: '', help: '富文本任务提示词；只有需要底层富文本能力时再传' },
     { name: 'promptParamsJson', help: '高级用法：直接覆盖整个 promptParams JSON。只有想绕过单独参数时再用' },
+    { name: 'aihubmixApiKey', help: '[AiHubMix] API Key；默认读 AIHUBMIX_API_KEY / AIHUBMIX_KEY / AIHUBMIX_TOKEN' },
+    { name: 'aihubmixRequestJson', help: '[AiHubMix] 直接覆盖 /v1/videos 请求 JSON' },
+    { name: 'aihubmixExtraBodyJson', help: '[AiHubMix] 合并到 extra_body 的 JSON' },
   ],
   columns: ['预计积分', '项目组余额', '提交后项目组剩余', '团队积分', '提交后团队剩余'],
   func: async (_page, kwargs) => {
@@ -7932,6 +8429,7 @@ cli({
     { name: 'prompt', default: '', help: '全局视频提示词；描述整体动作、风格和镜头运动' },
     { name: 'ratio', help: '视频比例。先用 model-options 查看该模型可选值。示例: 16:9' },
     { name: 'quality', help: '分辨率档位。先用 model-options 查看该模型可选值。示例: 720' },
+    { name: 'size', help: '[AiHubMix] 直接传视频分辨率。示例: 1280x720 / 720x1280 / 960x960' },
     { name: 'generatedTime', help: '最终视频时长秒数。示例: 5、10' },
     { name: 'frameUrl', help: '[首尾帧模式] 现成首帧图片 URL；适合直接用线上图片做首帧' },
     { name: 'frameFile', help: '[首尾帧模式] 本地首帧图片路径；CLI 会先自动上传再使用。示例: ./frame.webp' },
@@ -7956,6 +8454,9 @@ cli({
     { name: 'framesJson', help: '高级用法：直接覆盖整个 frames 数组 JSON；只有做多帧精细控制时再用' },
     { name: 'richTaskPrompt', default: '', help: '富文本任务提示词；只有需要底层富文本能力时再传' },
     { name: 'promptParamsJson', help: '高级用法：直接覆盖整个 promptParams JSON。只有想绕过单独参数时再用' },
+    { name: 'aihubmixApiKey', help: '[AiHubMix] API Key；默认读 AIHUBMIX_API_KEY / AIHUBMIX_KEY / AIHUBMIX_TOKEN' },
+    { name: 'aihubmixRequestJson', help: '[AiHubMix] 直接覆盖 /v1/videos 请求 JSON' },
+    { name: 'aihubmixExtraBodyJson', help: '[AiHubMix] 合并到 extra_body 的 JSON' },
     { name: 'waitSeconds', type: 'int', default: 0, help: '提交后额外等待结果秒数。0=只提交。示例: 180' },
     { name: 'pollIntervalMs', type: 'int', default: 5000, help: '等待结果时的轮询间隔毫秒。示例: 5000' },
     TASK_RECORD_FILE_ARG,
@@ -7980,7 +8481,7 @@ cli({
       await appendTaskRecord(kwargs, {
         event: 'submitted',
         command: 'video-create',
-        taskType: 'VIDEO_GROUP',
+        taskType: result.provider === 'aihubmix' ? 'AIHUBMIX_VIDEO' : 'VIDEO_GROUP',
         taskId: result.taskId ?? null,
         taskStatus: result.taskStatus ?? null,
         projectGroupNo: result.projectGroupNo ?? kwargs.projectGroupNo ?? null,
@@ -8018,6 +8519,7 @@ cli({
     { name: 'prompt', help: '默认全局视频提示词；只在单条任务未提供时才会带上' },
     { name: 'ratio', help: '默认视频比例；只在你显式传入时才会带上' },
     { name: 'quality', help: '默认分辨率档位；只在你显式传入时才会带上' },
+    { name: 'size', help: '[AiHubMix] 默认视频分辨率；只在你显式传入时才会带上' },
     { name: 'generatedTime', help: '默认视频时长；只在你显式传入时才会带上' },
     { name: 'frameText', help: '[首尾帧模式默认值] 默认首帧文字描述；只在单条任务未提供时才会带上' },
     { name: 'frameUrl', help: '[首尾帧模式默认值] 默认首帧图片 URL；只在单条任务未提供时才会带上' },
@@ -8043,6 +8545,9 @@ cli({
     { name: 'framesJson', help: '默认直接覆盖整个 frames 数组 JSON；只有做多帧精细控制时再用' },
     { name: 'richTaskPrompt', help: '默认富文本任务提示词；只在单条任务未提供时才会带上' },
     { name: 'promptParamsJson', help: '默认直接覆盖 promptParams JSON；只有普通参数不够时再用' },
+    { name: 'aihubmixApiKey', help: '[AiHubMix] API Key；默认读 AIHUBMIX_API_KEY / AIHUBMIX_KEY / AIHUBMIX_TOKEN' },
+    { name: 'aihubmixRequestJson', help: '[AiHubMix] 直接覆盖 /v1/videos 请求 JSON' },
+    { name: 'aihubmixExtraBodyJson', help: '[AiHubMix] 合并到 extra_body 的 JSON' },
     TASK_RECORD_FILE_ARG,
     DRY_RUN_ARG,
   ],
@@ -8093,7 +8598,7 @@ cli({
       await appendTaskRecord(kwargs, {
         event: 'submitted',
         command: 'video-create-batch',
-        taskType: 'VIDEO_GROUP',
+        taskType: result.provider === 'aihubmix' ? 'AIHUBMIX_VIDEO' : 'VIDEO_GROUP',
         inputIndex: index,
         taskId: result.taskId ?? null,
         taskStatus: result.taskStatus ?? null,

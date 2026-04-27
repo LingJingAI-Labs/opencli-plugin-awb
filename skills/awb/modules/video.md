@@ -19,6 +19,8 @@
 | `video-create-batch` | 批量生视频 | `--inputFile` 见 [`../references/batch-input-file.md`](../references/batch-input-file.md) |
 | `seedance-subtitle-remove` | Seedance 2.0 生成后去字幕 | 只接火山原始 Seedance 2.0 视频链接；生成后 24 小时内处理 |
 | `seedance-subtitle-status` | 查询去字幕任务 | asset-edit 任务 ID；可短窗口等待 |
+| `aihubmix-video-status` | 查询 AiHubMix 外部视频任务 | HappyHorse 等外部任务；默认读 `AIHUBMIX_API_KEY` |
+| `aihubmix-video-download` | 下载 AiHubMix 视频结果 | 调 `/v1/videos/{video_id}/content` 保存 mp4 |
 
 ### 四种模式
 
@@ -248,6 +250,35 @@ NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
 
 `seedance-subtitle-remove` 返回的 `去字幕任务ID` 是 asset-edit 的 `public_id`，后续传给 `seedance-subtitle-status --taskId`。如果 asset-edit 需要私有登录态，传 `--authorization "<Authorization header>"`，或设置 `ASSET_EDIT_AUTHORIZATION` / `ASSET_EDIT_TOKEN`。CLI 会对 URL 和 24 小时做本地保护；确认是有效原始链接或付费链路时才用 `--force true`。
 
+### 4.12 AiHubMix / HappyHorse 外部视频模型
+
+HappyHorse 暂未接入灵境 AWB 积分模型表时，可直接用 AiHubMix key 走外部计费。CLI 默认读取 `AIHUBMIX_API_KEY`（也兼容 `AIHUBMIX_KEY` / `AIHUBMIX_TOKEN`），不消耗 AWB 项目组积分；成本归属由 AiHubMix key 所在项目承担。
+
+支持的 `modelGroupCode`：
+
+- `happyhorse-1.0-t2v`：文生视频，只需要 `--prompt`
+- `happyhorse-1.0-i2v`：图生视频，用 `--frameUrl` / `--frameFile` / `--refImageUrls` / `--refImageFiles` 传首帧或图片参考
+- `happyhorse-1.0-r2v`：参考生视频，用 `--refImageUrls` / `--refVideoUrls` / `--refAudioUrls`，本地文件也可用对应 `*Files`
+- `happyhorse-1.0-video-edit`：视频编辑，必须传 `--refVideoUrls` 或 `--refVideoFiles`
+
+```bash
+# 文生视频
+"$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-t2v \
+  --prompt "雨夜街头，镜头缓慢推进，电影感" \
+  --generatedTime 5 --size 1280x720 -f json
+
+# 图生视频
+"$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-i2v \
+  --prompt "保持首帧人物，微风吹动头发，镜头轻微推进" \
+  --frameFile ./frame.webp --generatedTime 5 --size 1280x720 -f json
+
+# 查询并下载
+"$AWB_CMD" aihubmix-video-status --taskId <video_id> --waitSeconds 300 -f json
+"$AWB_CMD" aihubmix-video-download --taskId <video_id> --outputFile ./output.mp4
+```
+
+AiHubMix 任务返回的是 `video_id`，不是 AWB 后端 taskId；推荐直接用 `aihubmix-video-status` 查询，也可用 `task-wait --taskType AIHUBMIX_VIDEO --taskId <video_id>` 接入通用等待链路。`video-create --dryRun true` 只预览 AiHubMix 请求体，不会查 AWB 余额。
+
 ## 5. 经验引导
 
 - **先确认模式**：`model-options` 看 `supportsPromptOnly` / `frameFeature` / `refFeature` / `paramKeys`；不支持纯 prompt 的模型传了 `--prompt` 也得补帧或参考。
@@ -264,6 +295,7 @@ NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
 - **Token 计费模型（Seedance 2.0 系列）先 `video-fee`**：和按张 / 按次计费的不一样，提示词长度 / 参考数量都会推高成本。
 - **默认清晰度是 720p**：Seedance 2.0 可用 1080p，但成本很高；除非用户明确要高质量，否则自动化默认 720p。
 - **Seedance 2.0 去字幕要趁早**：如果用户要求“生成完去字幕 / 去水印”，只对 Seedance 2.0 结果调用 `seedance-subtitle-remove`，并在完成后 24 小时内用原始火山链接提交。
+- **AiHubMix HappyHorse 是外部计费**：`happyhorse-1.0-*` 不走 AWB 积分；先确认用户接受用 AiHubMix key 计费，再用 `video-create` 提交，用 `aihubmix-video-status/download` 查取结果。
 - **没给清晰度 / 比例 / 时长就不要静默提交**：先问用户，或明确建议默认值（如试片 `720p`、`5s`、竖屏 `9:16` / 横屏 `16:9`）并等待确认；`1080p` / Pro / 高质通道必须确认成本。
 - **故事板、音效开关不是所有模型都有**：查 `video-models` 的 `特色能力` 列；也能在 `paramKeys` 里看 `multi_prompt` / `audio` 是否存在。故事板分镜 `duration` 是秒，总和必须等于 `--generatedTime`。
 - **`--waitSeconds 180` 起步**：视频任务比生图慢得多；想完全异步就 `--waitSeconds 0`，拿 `taskId` 走 `task-wait`。

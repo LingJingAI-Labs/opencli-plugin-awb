@@ -12,6 +12,7 @@
 ## 2. 核心概念
 
 - **modelCode vs modelGroupCode**：`modelCode` 是模型逻辑名；`modelGroupCode` 是具体"通道"（折扣 / 低价 / 官方），它才是唯一主键。创作命令**优先传 `modelGroupCode`**。
+- **外部模型例外**：`happyhorse-1.0-t2v/i2v/r2v/video-edit` 是 AiHubMix 外部视频模型，`modelCode` 和 `modelGroupCode` 相同；它们不在 AWB 后端模型表里，也不消耗 AWB 积分。
 - **通道（groupHint / 通道列）**：同一个模型可能同时挂在"折扣 / 低价 / 官方"三条通道上，价格和队列不一样。
 - **paramKeys 白名单**：`image-models` / `video-models` 会直接告诉你该模型真正支持哪些参数；不在这里的别传。
 - **模式识别字段**：
