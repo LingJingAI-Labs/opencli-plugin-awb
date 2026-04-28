@@ -52,7 +52,7 @@
 
 - 模型 / 通道：`modelGroupCode`，说明 Fast / Pro / Omni / Discount / 1080p 等取舍
 - 模式：纯提示词、首尾帧、参考生视频、故事板四选一；说明没有混用互斥参数
-- 参数：`ratio`、`quality`（如 `720/1080`，以 `model-options` 可选值为准）、`generatedTime`、音效 / 音频 / 主体引用
+- 参数：`ratio`、`quality`（如 `720/1080`，以 `model-options` 可选值为准）、`generatedTime`、是否输出声音、是否带音色参考、主体引用
 - 输入：最终 prompt / storyboard；帧图、参考图、参考视频、音频、主体 asset 的绑定关系
 - 费用：预计积分、项目组余额、提交后预计剩余；Token 计费模型必须先估算
 - 等待：视频默认异步或短窗口等待；超过窗口后保存 `taskId`，后续用 `task-wait` / `tasks` 取结果
@@ -65,7 +65,7 @@
 2. **只有人物形象图**：如果选 Seedance 2.0，先问是否要做成可复用主体；做剧、多镜头、同角色复用时先 `subject-publish`，试片或普通参考模型才直接 `--refImageFiles`。
 3. **要控音色**：上传 / 引用音频，用 `--refAudioFiles` / `--refAudioUrls`，左值绑定到同名人物主体或图片；异名用 `名称@绑定目标=文件` 或 `--refAudiosJson bindTo`。
 4. **要控镜头切换**：先用 Banana Pro / Nano Banana / GPT Image 2 出 4 / 9 宫格分镜指挥图，再把它作为一张参考图传给视频模型。
-5. **模型取舍**：效果优先用 Seedance 2.0 720p；预算优先用 Seedance 2.0 Fast 或 Grok；可灵 3.0 / Omni 可用但音色引用链路更复杂，需按 `model-options` 确认。
+5. **模型取舍**：效果优先用 Seedance 2.0 720p；预算优先用 Seedance 2.0 Fast 或 Grok 3；复杂多参考优先看可灵 3.0-Omni；Vidu Q2 Pro 可做参考生但模型较老，Vidu Q3 Pro 当前已接入分组是纯提示词 / 首帧路线。
 6. **成本控制**：Seedance 2.0 系列是 Token 计费，默认先 `video-fee`，默认 `720p`；只有用户明确要高质交付再上 `1080p`。
 7. **确认闸口**：短剧 / 说话 / 对口型任务通常成本和等待时间都更高，正式提交前必须让用户确认模型通道、时长、清晰度、主体/音频绑定和预计积分；用户明确说自动跑时才跳过。
 
@@ -128,7 +128,7 @@
 
 用户说“真人”“短剧”“控制音色 / 说话 / 对口型”时，不要只推荐 `--refImageFiles` 一步法。先把路线讲清楚：
 
-1. **模型选择**：效果优先 Seedance 2.0（默认 720p，1080p 太贵时先提醒）；成本 / 速度优先 Seedance 2.0 Fast；便宜试片可考虑 Grok；可灵 3.0 / 3.0-Omni 可做多参考 / 故事板，但人物一致性走普通人设图参考，音色引用链路更麻烦。“音效开关”只代表自动配乐 / 音效，不等于控音色。
+1. **模型选择**：效果优先 Seedance 2.0（默认 720p，1080p 太贵时先提醒）；成本 / 速度优先 Seedance 2.0 Fast；便宜试片可考虑 Grok 3；复杂多参考优先看可灵 3.0-Omni；Vidu Q2 Pro 可做参考生但模型较老，Vidu Q3 Pro 当前已接入分组是纯提示词 / 首帧路线。
 2. **角色一致性优先路径**：Seedance 2.0 真人角色图先走 `subject-publish` / `subject-upload` 发布为主体（也就是平台加白 / 可引用资产链路），拿返回的 `nextRefSubject` 填 `--refSubjects`。其他普通参考模型不要走这条，用 `--refImageFiles` / `--refImageUrls`。
 3. **场景图路径**：场景不是主体，通常直接 `--refImageFiles "场景=./scene.webp"`，或先 `upload-files --sceneType material-video-create` 后用 `--refImageUrls` 复用。
 4. **一次性备选路径**：如果只是试片、账号无主体权限、或用户明确说“不上传 / 直接传 webp”，可以直接 `--refImageFiles "小莉=./person.webp,咖啡馆=./scene.webp"`；但要提醒这不是可复用主体，跨片一致性弱于 `--refSubjects`。
@@ -139,8 +139,9 @@
 
 - **Seedance 2.0**：目前效果最好、最贵；默认推荐 `720p`，`1080p` 只在预算允许时上。
 - **Seedance 2.0 Fast**：自动化批量更常用，便宜 / 快，但质量会降。
-- **可灵 3.0 / 3.0-Omni**：可以用多参考 / 故事板，Omni 也常用于更复杂参考；如果要控音色，必须确认 `model-options` 与 CLI 生成的 `multi_param + audio` 结构，不要只传 `--audio true`。
+- **可灵 3.0-Omni**：可以用图 / 视频多参考和故事板，常用于更复杂参考；`--audio true` 是让结果输出声音的开关，人物说话有声时通常要开。若要控音色，还必须有 `refAudio*` 且 `model-options` 支持音频参考。
 - **Grok**：便宜备选，可用于试片或低成本普通参考生成，不要承诺稳定口型 / 音色效果。
+- **Vidu**：`Vidu Q2 Turbo` 是首帧 / 首尾帧路线；`Vidu Q2 Pro` 支持首帧 / 首尾帧和图 / 视频参考生，最长 8 秒但模型较老；`Vidu Q3 Pro` 支持纯提示词 / 首帧和声音开关，最长 16 秒，当前已接入分组不是多参考。未来接入 Vidu Q3 多参考后再按 `model-options` 更新。
 
 推荐流程（可复用真人主体 + 场景图 + 音频）：
 
@@ -208,7 +209,7 @@ NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
   --quality 720 --generatedTime 5 --ratio 9:16 --waitSeconds 240 -f json
 ```
 
-可用于 Seedance 2.0、可灵 3.0-Omni、Grok、Veo、Vidu、PixVerse 等参考图 / 多参考视频模型；实际传参前仍以 `model-options` 的 `multi_param` / `refFeature` / `paramKeys` 为准。这里说的是普通参考图路线。
+可用于 Seedance 2.0 / Fast、可灵 3.0-Omni、Grok 3、Vidu Q2 Pro 等已接入且支持参考图 / 多参考的视频模型；实际传参前仍以 `video-models` 的 `参考模式` / `时长` 和 `model-options` 的 `multi_param` / `refFeature` / `paramKeys` 为准。这里说的是普通参考图路线，不包含未接入模型。
 
 ### 4.9 故事板（仅支持的模型）
 
@@ -267,7 +268,7 @@ HappyHorse 暂未接入灵境 AWB 积分模型表时，可直接用 AiHubMix key
 
 `happyhorse-1.0-r2v` 走 AiHubMix 的 `input + parameters` 请求体：`input.prompt` 必填，`input.media` 必填且只接受 `reference_image`，`parameters.resolution` 支持 `1080P` / `720P`（默认 `1080P`），`parameters.ratio` 支持 `16:9` / `9:16` / `3:4` / `4:3` / `1:1`（默认 `16:9`），`parameters.duration` 为 3-15 秒整数（默认 5）。参考图限制：公网 HTTP/HTTPS URL，JPEG/JPG/PNG/WEBP，短边不低于 400px，单张不超过 10MB。
 
-HappyHorse 当前不支持音频 / 音色参考；不要传 `--refAudioFiles` / `--refAudioUrls` / `--audio` / `--needAudio`。需要控音色时改用 Seedance / 可灵等支持音频参考的 AWB 原生视频模型。
+HappyHorse 当前不支持音频 / 音色参考；不要传 `--refAudioFiles` / `--refAudioUrls` / `--audio` / `--needAudio`。需要控音色时改用 Seedance 2.0 / Fast 等 `model-options` 明确显示支持音频参考的 AWB 原生视频模型。
 
 ```bash
 # 文生视频
@@ -305,12 +306,12 @@ AiHubMix 任务返回的是 `video_id`，不是 AWB 后端 taskId；推荐直接
 - **场景图不需要发布成主体**：场景通常直接作为命名图片参考传入；如果要多次复用，先 `upload-files --sceneType material-video-create` 再用 `--refImageUrls`。
 - **分镜指挥图是参考图，不是故事板模式**：4 / 9 宫格图作为 `--refImageFiles "分镜指挥图=..."` 进入参考生视频；prompt 必须写清“按格子顺序参考构图，但不要出现宫格边框 / 编号 / 字幕”。
 - **`--quality` 的数值单位跟模型走**：生视频常见 `720` / `1080`（数字）；生图常见 `1K` / `2K`（字母）。看 `model-options` 的 `约束` 列。
-- **`--generatedTime` 单位是秒**：常见 5 / 10 / 15；部分模型只接离散值。可灵 3.0（非 Omni）的参考生视频 `multi_param` 路径截至 2026-04-24 实测 10 秒可创建、15 秒会失败；可灵 3.0-Omni 同路径 15 秒已实测可成功。CLI 当前只拦截已验证会失败的非 Omni 15 秒路径。
+- **`--generatedTime` 单位是秒**：先看 `video-models` 的 `时长` 列，再用 `model-options` 复核。Seedance 2.0 / Fast 支持 4-15 秒；可灵 3.0 / 3.0-Omni 支持 3-15 秒；Grok 3 当前固定 10 秒；Vidu Q2 Turbo / Q2 Pro 支持 2-8 秒；Vidu Q3 Pro 支持 1-16 秒。可灵 3.0（非 Omni）的参考生视频 `multi_param` 路径截至 2026-04-24 实测 10 秒可创建、15 秒会失败；可灵 3.0-Omni 同路径 15 秒已实测可成功。CLI 当前只拦截已验证会失败的非 Omni 15 秒路径。
 - **Token 计费模型（Seedance 2.0 系列）先 `video-fee`**：和按张 / 按次计费的不一样，提示词长度 / 参考数量都会推高成本。
 - **默认清晰度是 720p**：Seedance 2.0 可用 1080p，但成本很高；除非用户明确要高质量，否则自动化默认 720p。
 - **Seedance 2.0 去字幕要趁早**：如果用户要求“生成完去字幕 / 去水印”，只对 Seedance 2.0 结果调用 `seedance-subtitle-remove`，并在完成后 24 小时内用原始火山链接提交。
 - **AiHubMix HappyHorse 是外部计费**：`happyhorse-1.0-*` 不走 AWB 积分；先确认用户接受用 AiHubMix key 计费，再用 `video-create` 提交，用 `aihubmix-video-status/download` 查取结果。
 - **没给清晰度 / 比例 / 时长就不要静默提交**：先问用户，或明确建议默认值（如试片 `720p`、`5s`、竖屏 `9:16` / 横屏 `16:9`）并等待确认；`1080p` / Pro / 高质通道必须确认成本。
-- **故事板、音效开关不是所有模型都有**：查 `video-models` 的 `特色能力` 列；也能在 `paramKeys` 里看 `multi_prompt` / `audio` 是否存在。故事板分镜 `duration` 是秒，总和必须等于 `--generatedTime`。
+- **故事板、声音开关不是所有模型都有**：查 `video-models` 的 `特色能力` 列；也能在 `paramKeys` 里看 `multi_prompt` / `audio` 是否存在。`audio` / `needAudio` 是是否让结果带声音的控制；带人物说话或音频参考时默认开。故事板分镜 `duration` 是秒，总和必须等于 `--generatedTime`。
 - **`--waitSeconds 180` 起步**：视频任务比生图慢得多；想完全异步就 `--waitSeconds 0`，拿 `taskId` 走 `task-wait`。
 - **异步台账**：视频默认建议加 `--taskRecordFile .awb/tasks.jsonl`；后续用同一个文件跑 `task-record-poll` 批量查回结果，或 `task-records --pendingOnly true` 只查看还没记录完成结果的任务。

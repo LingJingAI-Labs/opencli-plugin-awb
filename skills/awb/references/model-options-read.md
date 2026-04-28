@@ -63,7 +63,7 @@
 生视频模型的额外信号，如：
 
 - `故事板`：支持 `--storyboardPrompts`
-- `音效开关`：支持 `--audio true/false` / `--needAudio`
+- `声音开关`：支持 `--audio true/false` / `--needAudio`，控制结果是否带声音；不是独立控音色
 - `Token计费`：按 token 计费，先 `video-fee`
 - `图/视频/音频`：参考类型支持组合（全都能传）
 

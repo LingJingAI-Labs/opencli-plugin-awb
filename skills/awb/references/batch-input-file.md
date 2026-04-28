@@ -74,7 +74,7 @@
 | `refAudioFiles` / `refAudioUrls` / `refAudiosJson` | 同名 flag | 参考音频（默认绑定同名图 / 主体） |
 | `refSubjects` / `refSubjectsJson` | 同名 flag | 已有主体 ID |
 | `storyboardPrompts` | `--storyboardPrompts` | 故事板 |
-| `audio` / `needAudio` | 同名 flag | 音效开关 |
+| `audio` / `needAudio` | 同名 flag | 是否让结果带声音 |
 | `promptParamsJson` / `framesJson` | 同名 flag | 极端结构 |
 
 ## 3. 命令行默认值 vs 单条字段

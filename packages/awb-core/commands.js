@@ -2503,6 +2503,7 @@ function normalizeAihubmixVideoModelRows() {
     提供方: 'AiHubMix',
     帧模式: item.frameFeature,
     参考模式: item.refFeature,
+    时长: item.modelCode === 'happyhorse-1.0-r2v' ? '3-15s' : '2-15s',
     特色能力: '外部计费 | async',
     通道: '外部',
     模型组: item.modelGroupCode,
@@ -3242,6 +3243,33 @@ function summarizeVideoReferenceFeature(paramMap) {
   return orderedKinds.length ? orderedKinds.join('/') : '多参考';
 }
 
+function hasVideoReferenceFeature(value) {
+  const text = trimToNull(value);
+  return !!text && text !== '无';
+}
+
+function summarizeDurationFeature(paramMap) {
+  const option = paramMap.get('generated_time') ?? paramMap.get('duration') ?? paramMap.get('seconds');
+  if (!option) return null;
+  const values = optionValues(option);
+  if (values.length) {
+    const numericValues = values.map((item) => toNumberOrNull(item)).filter((item) => item != null);
+    if (numericValues.length === values.length) {
+      const min = Math.min(...numericValues);
+      const max = Math.max(...numericValues);
+      return min === max ? `${min}s` : `${min}-${max}s`;
+    }
+    return values.join('/');
+  }
+  const rules = modelParamRules(option);
+  const min = toNumberOrNull(rules?.minValue ?? rules?.min ?? rules?.minimum);
+  const max = toNumberOrNull(rules?.maxValue ?? rules?.max ?? rules?.maximum);
+  if (min != null && max != null) return min === max ? `${min}s` : `${min}-${max}s`;
+  if (max != null) return `≤${max}s`;
+  if (min != null) return `≥${min}s`;
+  return null;
+}
+
 function summarizeExtraModelFeatures(item, kind, paramMap) {
   const extras = [];
   if (kind === 'video') {
@@ -3250,7 +3278,7 @@ function summarizeExtraModelFeatures(item, kind, paramMap) {
       extras.push('故事板');
     }
     if (paramMap.has('audio') || paramMap.has('need_audio') || paramMap.has('needAudio')) {
-      extras.push('音效开关');
+      extras.push('声音开关');
     }
   }
   const feeCalcType = trimToNull(item?.feeCalcType ?? item?.feeType);
@@ -3365,15 +3393,16 @@ function normalizeModelOptionRows(payload, kind = 'generic', modelDefinition = n
     .map((item) => {
       const merged = mergeModelOptionDef(item, ruleSourceMap);
       const values = optionValues(merged);
+      const displayName = normalizeModelOptionDisplayName(merged);
       return {
         rank: merged?.rank ?? null,
         paramKey: merged?.paramKey ?? null,
-        paramName: merged?.paramName ?? null,
+        paramName: displayName,
         paramType: merged?.paramType ?? null,
         cliFlag: modelParamExample(kind, merged?.paramKey ?? '', values),
         allowedValues: values.join(', '),
         底层参数: merged?.paramKey ?? null,
-        名称: merged?.paramName ?? null,
+        名称: displayName,
         类型: merged?.paramType ?? null,
         约束: summarizeModelOptionConstraint(merged),
         推荐CLI用法: modelParamExample(kind, merged?.paramKey ?? '', values),
@@ -3381,6 +3410,12 @@ function normalizeModelOptionRows(payload, kind = 'generic', modelDefinition = n
       };
     })
     .sort((left, right) => toInt(left?.rank, 0) - toInt(right?.rank, 0));
+}
+
+function normalizeModelOptionDisplayName(option) {
+  const key = String(option?.paramKey ?? '');
+  if (key === 'audio' || key === 'need_audio' || key === 'needAudio') return '声音开关';
+  return option?.paramName ?? null;
 }
 
 function ensureRequiredArgs(commandName, kwargs, specs) {
@@ -3549,6 +3584,7 @@ function normalizeModelRows(payload) {
     const videoFrameFeature = kind === 'video' ? summarizeVideoFrameFeature(paramMap) : null;
     const videoReferenceFeature = kind === 'video' ? summarizeVideoReferenceFeature(paramMap) : null;
     const extraFeatures = summarizeExtraModelFeatures(item, kind, paramMap);
+    const durationFeature = kind === 'video' ? summarizeDurationFeature(paramMap) : null;
     const frameOption = paramMap.get('frames');
     const frameRules = modelParamRules(frameOption);
     const supportsPromptOnly =
@@ -3584,6 +3620,7 @@ function normalizeModelRows(payload) {
       totalFailCount: ext?.total_fail_cnt ?? null,
       refFeature: kind === 'image' ? imageRefFeature : videoReferenceFeature,
       frameFeature: kind === 'video' ? videoFrameFeature : null,
+      durationFeature,
       extraFeatures,
       supportsPromptOnly,
       featureSummary,
@@ -3595,6 +3632,7 @@ function normalizeModelRows(payload) {
       参考图: kind === 'image' ? imageRefFeature : null,
       帧模式: kind === 'video' ? videoFrameFeature : null,
       参考模式: kind === 'video' ? videoReferenceFeature : null,
+      时长: kind === 'video' ? durationFeature : null,
       特色能力: extraFeatures,
       通道:
         modelGroupCode && /OFFICIAL/i.test(modelGroupCode) ? '官方'
@@ -3660,7 +3698,7 @@ function buildModelPreviewCommand(kind, modelRow) {
   if (modelCode.includes('happyhorse-1.0-i2v')) {
     return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "保持原图主体，轻微运镜" --frameFile ./frame.webp --generatedTime <seconds> --dryRun true`;
   }
-  if (trimToNull(modelRow?.['参考模式'])) {
+  if (hasVideoReferenceFeature(modelRow?.['参考模式'] ?? modelRow?.refFeature)) {
     return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
   }
   return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --frameFile ./frame.webp --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
@@ -7788,7 +7826,7 @@ cli({
     quickStart: [
       '如果你已经知道模型名，可先用 `--model "<关键词>"` 过滤',
       '真正创建时优先复制 `modelGroupCode`，不必再记 `modelCode`',
-      '输出里的中文列会直接标出首帧、首尾帧、多参考、故事板、音效开关等能力',
+      '输出里的中文列会直接标出首帧、首尾帧、多参考、时长、故事板、声音开关等能力',
     ],
     examples: ['opencli awb video-models', 'opencli awb video-models --model "即梦 3.0 Pro"'],
   }),
@@ -7804,6 +7842,7 @@ cli({
     '提供方',
     '帧模式',
     '参考模式',
+    '时长',
     '特色能力',
     '通道',
     '模型组',
@@ -8715,7 +8754,7 @@ cli({
     { name: 'tailFrameUrl', help: '[首尾帧模式] 尾帧图片 URL；适合做首尾帧过渡' },
     { name: 'tailFrameFile', help: '[首尾帧模式] 本地尾帧图片路径；CLI 会先自动上传再使用。示例: ./tail.webp' },
     { name: 'generatedMode', help: '[高级参数] 指定生成模式。示例: frames / multi_param / multi_prompt。通常不传，CLI 会按输入自动判断。' },
-    { name: 'audio', help: '[部分模型] 是否启用音频/音效能力。示例: true / false；带音频参考时默认 true。' },
+    { name: 'audio', help: '[部分模型] 是否让结果带声音/启用声音能力。示例: true / false；带音频参考时默认 true。' },
     { name: 'needAudio', help: '[部分模型] 是否要求输出带音频。示例: true / false；带音频参考时默认 true。' },
     { name: 'refImageFiles', help: '[参考生视频模式] 命名图片文件。格式: 名称=./a.webp,背景=./bg.webp；提示词里可用 @名称 引用。' },
     { name: 'refImageUrls', help: '[参考生视频模式] 命名图片地址。格式: 名称=/material/... 或 名称=https://...' },
@@ -8798,7 +8837,7 @@ cli({
     { name: 'tailFrameUrl', help: '[首尾帧模式] 尾帧图片 URL；适合做首尾帧过渡' },
     { name: 'tailFrameFile', help: '[首尾帧模式] 本地尾帧图片路径；CLI 会先自动上传再使用。示例: ./tail.webp' },
     { name: 'generatedMode', help: '[高级参数] 指定生成模式。示例: frames / multi_param / multi_prompt。通常不传，CLI 会按输入自动判断。' },
-    { name: 'audio', help: '[部分模型] 是否启用音频/音效能力。示例: true / false；带音频参考时默认 true。' },
+    { name: 'audio', help: '[部分模型] 是否让结果带声音/启用声音能力。示例: true / false；带音频参考时默认 true。' },
     { name: 'needAudio', help: '[部分模型] 是否要求输出带音频。示例: true / false；带音频参考时默认 true。' },
     { name: 'refImageFiles', help: '[参考生视频模式] 命名图片文件。格式: 名称=./a.webp,背景=./bg.webp；提示词里可用 @名称 引用。' },
     { name: 'refImageUrls', help: '[参考生视频模式] 命名图片地址。格式: 名称=/material/... 或 名称=https://...' },
@@ -8889,7 +8928,7 @@ cli({
     { name: 'tailFrameUrl', help: '[首尾帧模式默认值] 默认尾帧图片 URL；只在单条任务未提供时才会带上' },
     { name: 'tailFrameFile', help: '[首尾帧模式默认值] 默认本地尾帧图片；CLI 会自动上传，只在单条任务未提供时才会带上' },
     { name: 'generatedMode', help: '[高级默认值] 默认生成模式；示例: frames / multi_param / multi_prompt。通常不传。' },
-    { name: 'audio', help: '[部分模型默认值] 默认是否启用音频/音效能力；只在单条任务未提供时才会带上' },
+    { name: 'audio', help: '[部分模型默认值] 默认是否让结果带声音/启用声音能力；只在单条任务未提供时才会带上' },
     { name: 'needAudio', help: '[部分模型默认值] 默认是否要求输出带音频；只在单条任务未提供时才会带上' },
     { name: 'refImageFiles', help: '[参考生视频模式默认值] 默认命名图片参考文件；格式: 名称=./a.webp,背景=./bg.webp' },
     { name: 'refImageUrls', help: '[参考生视频模式默认值] 默认命名图片参考地址；格式: 名称=/material/... 或 https://...' },

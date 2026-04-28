@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.21 - 2026-04-29
+
+- Add video duration summaries to `video-models` so agents can pick models by supported clip length before drilling into `model-options`.
+- Rename video `audio` capability summaries and help text from sound-effect wording to a clearer sound-output switch.
+- Tighten AWB skill video guidance for current integrated models: Vidu Q2 Turbo / Q2 Pro / Q3 Pro, Seedance 2.0 / Fast, Kling 3.0-Omni, and Grok 3.
+- Fix video model preview hints so models whose reference mode is `无` no longer get reference-image command examples.
+
 ## 0.1.20 - 2026-04-27
 
 - Document the two GPT Image 2 groups separately: `GPT2_ImageCreate_Discount_Group` has no `quality` / `generateNum`, while `GPT2_ImageCreate_Group` supports `quality` but still has no `generateNum`.
@@ -67,7 +74,7 @@
 
 - Add AWB skill guidance for真人短剧生产流：主体 / 人设图 + 场景图 + 可选音色的参考生视频默认路线。
 - Document model selection tradeoffs for Seedance 2.0, Seedance 2.0 Fast, Kling 3.0 / Omni, Grok, and other reference-video models.
-- Add the 4/9 宫格分镜指挥图 workflow: use Banana Pro / Nano Banana / GPT Image 2 to create a shotboard image, then feed it with subject/persona and scene references into Seedance, Kling, Grok, Veo, Vidu, PixVerse, etc.
+- Add the 4/9 宫格分镜指挥图 workflow: use Banana Pro / Nano Banana / GPT Image 2 to create a shotboard image, then feed it with subject/persona and scene references into the integrated reference-capable video models.
 - Clarify 720p as the default automation resolution for Seedance 2.0, with 1080p called out as a higher-cost option.
 
 ## 0.1.6 - 2026-04-24
