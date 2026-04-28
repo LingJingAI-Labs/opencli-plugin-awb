@@ -18,6 +18,7 @@ import {
   maskAccessKey,
   normalizeCode,
   parseJsonArg,
+  prepareLocalUploadFile,
   REDEEM_CODE_RE,
   readImageMetadata,
   resolveEnvProjectGroupNo,
@@ -648,7 +649,8 @@ async function resolveCurrentGroupId() {
 }
 
 async function uploadAssetLibraryFile(filePath, options = {}) {
-  const absolutePath = path.resolve(filePath);
+  const prepared = await prepareLocalUploadFile(filePath, options);
+  const absolutePath = prepared.filePath;
   const buffer = await fs.readFile(absolutePath);
   const imageMeta =
     await readImageMetadata(absolutePath).catch(() => ({
@@ -705,6 +707,9 @@ async function uploadAssetLibraryFile(filePath, options = {}) {
   }
   return {
     filePath: absolutePath,
+    originalFilePath: prepared.originalFilePath,
+    converted: prepared.converted,
+    conversion: prepared.conversion,
     fileName: path.basename(absolutePath),
     sceneType: TASK_UPLOAD_SCENE.IMAGE_EDIT,
     mimeType: imageMeta.mimeType ?? 'application/octet-stream',
@@ -1635,6 +1640,178 @@ function presentTaskDurationStats(result) {
     successAvgSeconds: '成功平均秒',
     failAvgSeconds: '失败平均秒',
     totalMaxSeconds: '最大耗时秒',
+  });
+}
+
+function uniqueNonEmpty(values = []) {
+  return [...new Set(values.map((item) => trimToNull(item)).filter(Boolean))];
+}
+
+function normalizeDurationToken(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[（）()【】\[\]]+/g, '-')
+    .replace(/--+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function inferStatPlatformCandidates(model, modelDefinition = null) {
+  const text = `${model?.modelName ?? ''} ${model?.modelCode ?? ''} ${model?.modelGroupCode ?? ''} ${modelDefinition?.componyName ?? ''} ${modelDefinition?.provider ?? ''}`.toLowerCase();
+  const candidates = [];
+  if (/seedance|jimeng|即梦|字节|火山|doubao/.test(text)) candidates.push('volcengine', 'jimeng');
+  if (/gpt|openai|sora/.test(text)) candidates.push('openai');
+  if (/qwen|千问|通义/.test(text)) candidates.push('qwen');
+  if (/kling|可灵|kuaishou/.test(text)) candidates.push('kling', 'kuaishou');
+  if (/vidu|生数/.test(text)) candidates.push('vidu');
+  if (/grok|xai/.test(text)) candidates.push('xai', 'grok');
+  if (/banana|google|gemini|nano/.test(text)) candidates.push('google');
+  if (/midjourney|\bmj\b/.test(text)) candidates.push('midjourney');
+  if (/flux|black-forest/.test(text)) candidates.push('flux');
+  if (/aihubmix|happyhorse/.test(text)) candidates.push('aihubmix');
+  return uniqueNonEmpty(candidates);
+}
+
+function inferStatModelUseCandidates(model, modelDefinition = null) {
+  const text = `${model?.modelName ?? ''} ${model?.modelCode ?? ''} ${model?.modelGroupCode ?? ''} ${modelDefinition?.modelVersion ?? ''}`.toLowerCase();
+  const candidates = [];
+  if (/seedance/.test(text)) {
+    candidates.push('seedance2.0', 'doubao-seedance-2-0', 'doubao-seedance-2-0-260128');
+    if (/fast/.test(text)) candidates.unshift('seedance2.0 fast', 'seedance-2.0-fast');
+  }
+  if (/gpt.*image.*2|gpt2/.test(text)) candidates.push('gpt-image-2', 'gpt image 2');
+  if (/nano.*banana.*2|banana2/.test(text)) candidates.push('nano-banana-2', 'nano banana 2');
+  if (/nano.*banana|banana/.test(text)) candidates.push('banana pro', 'nano banana', 'banana');
+  if (/qwen|千问/.test(text)) candidates.push('qwen', '千问');
+  if (/kling|可灵/.test(text)) {
+    if (/omni/.test(text)) candidates.push('kling3omni', 'kling 3 omni', '可灵3.0-omni');
+    candidates.push('kling', '可灵');
+  }
+  if (/vidu.*q2.*turbo/.test(text)) candidates.push('vidu q2 turbo', 'vidu');
+  if (/vidu.*q2.*pro/.test(text)) candidates.push('vidu q2 pro', 'vidu');
+  if (/vidu.*q3.*pro/.test(text)) candidates.push('vidu q3 pro', 'vidu');
+  if (/grok/.test(text)) candidates.push('grok 3', 'grok');
+  if (/midjourney|\bmj\b/.test(text)) candidates.push('midjourney', 'mj');
+  if (/flux/.test(text)) candidates.push('flux');
+  if (/happyhorse/.test(text)) candidates.push('happyhorse', 'happyhorse-1.0');
+  candidates.push(model?.modelName, modelDefinition?.modelName, modelDefinition?.modelVersion, model?.modelCode);
+  return uniqueNonEmpty(candidates.map(normalizeDurationToken));
+}
+
+function scoreDurationStatRow(row, query) {
+  let score = 0;
+  const modelUse = normalizeDurationToken(row.modelUseType);
+  const platform = normalizeDurationToken(row.platformType);
+  const channel = normalizeDurationToken(row.channel);
+  if (query.modelUseType) score += 50;
+  if (query.platformType) score += 12;
+  if (query.channel) score += 8;
+  if (query.modelUseType && modelUse === normalizeDurationToken(query.modelUseType)) score += 20;
+  if (query.modelUseType && modelUse.includes(normalizeDurationToken(query.modelUseType))) score += 10;
+  if (query.platformType && platform === normalizeDurationToken(query.platformType)) score += 8;
+  if (query.channel && channel === normalizeDurationToken(query.channel)) score += 5;
+  score += Math.min(toNumberOrNull(row.successCount ?? row.totalCount) ?? 0, 50) / 10;
+  if (row.successAvgSeconds != null) score += 5;
+  return score;
+}
+
+function suggestedWaitSeconds(kind, avgSeconds) {
+  const avg = toNumberOrNull(avgSeconds);
+  if (avg == null) return kind === 'video' ? 300 : 180;
+  const padded = Math.ceil(avg * 1.6 + 30);
+  const min = kind === 'video' ? 180 : 90;
+  const max = kind === 'video' ? 900 : 420;
+  return Math.min(max, Math.max(min, padded));
+}
+
+async function estimateModelDuration(kwargs = {}) {
+  const model = await resolveModelSelection(trimToNull(kwargs.kind) ?? 'generic', kwargs);
+  const modelDefinition = await fetchResolvedModelDefinition(model, '').catch(() => null);
+  const kind = model.kind ?? inferModelKind(model.modelCode, model.modelGroupCode);
+  const bizType = trimToNull(kwargs.bizType) ?? (kind === 'video' ? '视频生成' : '图片生成');
+  const platformCandidates = uniqueNonEmpty([
+    kwargs.platformType,
+    ...inferStatPlatformCandidates(model, modelDefinition),
+  ]);
+  const modelUseCandidates = uniqueNonEmpty([
+    kwargs.modelUseType,
+    ...inferStatModelUseCandidates(model, modelDefinition),
+  ]);
+  const queries = [];
+  for (const modelUseType of modelUseCandidates.slice(0, 8)) {
+    queries.push({ modelUseType });
+    for (const platformType of platformCandidates.slice(0, 4)) {
+      queries.push({ modelUseType, platformType });
+    }
+  }
+  for (const platformType of platformCandidates.slice(0, 4)) {
+    queries.push({ platformType });
+  }
+  queries.push({});
+
+  const seen = new Set();
+  const candidates = [];
+  for (const query of queries) {
+    const key = JSON.stringify(query);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const result = await fetchTaskDurationStats({
+      ...kwargs,
+      bizType,
+      scope: kwargs.scope ?? 'channel',
+      granularity: kwargs.granularity ?? 'day',
+      orderBy: kwargs.orderBy ?? 'success_avg_ms',
+      orderDir: kwargs.orderDir ?? 'asc',
+      pageSize: kwargs.pageSize ?? 20,
+      ...query,
+    }).catch(() => null);
+    for (const row of result?.rows ?? []) {
+      const avg = row.successAvgSeconds ?? row.totalAvgSeconds;
+      if (avg == null) continue;
+      candidates.push({
+        ...row,
+        _query: query,
+        _score: scoreDurationStatRow(row, query),
+      });
+    }
+    if (candidates.some((row) => row._score >= 65)) break;
+  }
+
+  candidates.sort((a, b) => b._score - a._score);
+  const best = candidates[0] ?? null;
+  const avgSeconds = best ? (best.successAvgSeconds ?? best.totalAvgSeconds) : null;
+  const confidence =
+    best?._score >= 70 ? 'high'
+      : best?._score >= 35 ? 'medium'
+        : best ? 'low' : 'none';
+  return {
+    modelCode: model.modelCode,
+    modelGroupCode: model.modelGroupCode,
+    modelName: model.modelName ?? modelDefinition?.modelName ?? null,
+    kind,
+    bizType,
+    inferredPlatformCandidates: platformCandidates,
+    inferredModelUseCandidates: modelUseCandidates,
+    avgSeconds,
+    successAvgSeconds: best?.successAvgSeconds ?? null,
+    totalAvgSeconds: best?.totalAvgSeconds ?? null,
+    suggestedWaitSeconds: suggestedWaitSeconds(kind, avgSeconds),
+    confidence,
+    matchedBy: best?._query ?? null,
+    stat: best ? Object.fromEntries(Object.entries(best).filter(([key]) => !key.startsWith('_'))) : null,
+    alternatives: candidates.slice(1, 6).map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith('_')))),
+  };
+}
+
+function presentModelDurationEstimate(result) {
+  return withAliases(result, {
+    modelName: '模型',
+    modelGroupCode: '模型组',
+    bizType: '业务类型',
+    avgSeconds: '预估平均秒',
+    suggestedWaitSeconds: '建议等待秒',
+    confidence: '置信度',
+    matchedBy: '匹配条件',
   });
 }
 
@@ -4133,6 +4310,7 @@ function presentUploadRows(rows) {
   })), {
     fileName: '文件名',
     sceneType: '上传场景',
+    converted: '自动转码',
     backendPath: '素材路径',
     groupId: '素材组ID',
     reuseHint: '复用写法',
@@ -7895,7 +8073,7 @@ cli({
     },
     DRY_RUN_ARG,
   ],
-  columns: ['文件名', '上传场景', '素材路径', '素材组ID', '复用写法', '主体注册写法', '宽', '高'],
+  columns: ['文件名', '上传场景', '自动转码', '素材路径', '素材组ID', '复用写法', '主体注册写法', '宽', '高'],
   func: async (_page, kwargs) => {
     const sceneType = kwargs.sceneType || TASK_UPLOAD_SCENE.IMAGE_CREATE;
     const allowedSceneTypes = [...new Set(Object.values(TASK_UPLOAD_SCENE))];
@@ -7913,6 +8091,9 @@ cli({
       sceneType: item.sceneType,
       mimeType: item.mimeType,
       size: item.size,
+      converted: item.converted ? 'webp' : '',
+      originalFilePath: item.originalFilePath,
+      conversion: item.conversion,
       width: item.width,
       height: item.height,
       backendPath: item.backendPath,
@@ -8390,6 +8571,33 @@ cli({
   ],
   columns: ['统计时间', '业务类型', '平台', '模型用途', '通道', '总数', '成功数', '平均耗时秒', '成功平均秒', '失败平均秒', '最大耗时秒'],
   func: async (_page, kwargs) => presentTaskDurationStats(await fetchTaskDurationStats(kwargs)),
+});
+
+cli({
+  site: SITE,
+  name: 'model-duration-estimate',
+  description: commandHelp('按 AWB 模型组估算平均耗时和建议等待窗口', {
+    examples: [
+      'opencli awb model-duration-estimate --modelGroupCode GPT2_ImageCreate_Group -f json',
+      'opencli awb model-duration-estimate --modelGroupCode JiMeng_Seedance_2_VideoCreate_Group --kind video -f json',
+    ],
+    hint: '会根据模型名 / 供应商推断统计看板的 modelUseType / platformType；不是严格 SLA，confidence 低时请再用 task-duration-stats 手动收窄。',
+  }),
+  browser: false,
+  args: [
+    { name: 'modelCode', help: '模型 code；有多个分组时建议改用 modelGroupCode' },
+    { name: 'modelGroupCode', help: '模型组 code，推荐优先传' },
+    { name: 'kind', choices: ['generic', 'image', 'video'], default: 'generic', help: '模型类型；通常可自动推断' },
+    { name: 'days', type: 'int', default: 7, help: '向前看的天数' },
+    { name: 'scope', default: 'channel', choices: ['task', 'channel'], help: '统计口径' },
+    { name: 'granularity', default: 'day', choices: ['5m', 'day'], help: '统计粒度' },
+    { name: 'platformType', help: '手动指定看板平台类型' },
+    { name: 'modelUseType', help: '手动指定看板模型用途' },
+    { name: 'channel', help: '手动指定看板通道名' },
+    { name: 'pageSize', type: 'int', default: 20 },
+  ],
+  columns: ['模型', '模型组', '业务类型', '预估平均秒', '建议等待秒', '置信度', '匹配条件'],
+  func: async (_page, kwargs) => presentModelDurationEstimate(await estimateModelDuration(kwargs)),
 });
 
 cli({

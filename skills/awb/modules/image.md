@@ -1,140 +1,32 @@
 # Image Module
 
-单张生图、参考图、批量。所有参数以 `model-options` + 模型 `paramKeys` 为准。
+单张生图、参考图、批量。CLI 参数和可选值以实时 `image-models`、`model-options`、`--help` 为准；skill 只记录 AWB 使用经验。
 
-## 1. 何时使用
+## 1. 命令入口
 
-- 生成一张 / 多张图片（纯提示词或带参考图）
-- 预估消耗、干跑
-- 批量生图（每条条件不一样）
-- 先用人物图 / 场景图生成 4 宫格 / 9 宫格分镜指挥图，再给视频模型做参考
+| 命令 | 用途 |
+|------|------|
+| `image-models` | 查当前账号可用生图模型、通道、参考图能力、`modelGroupCode` |
+| `model-options` | 查选中模型实时参数、可选值、文件上限、推荐 CLI flag |
+| `image-fee` | 用正式参数预估积分和项目组余额 |
+| `image-create` | 提交单次生图 |
+| `image-create-batch` | 批量提交生图 |
 
-## 2. 命令与模式
+## 2. 必要原则
 
-| 命令 | 用途 | 路由提醒 |
-|------|------|----------|
-| `image-fee` | 估算单次生图积分与项目组余额 | 复杂 refs 用它替代裸 `dryRun` 更省事 |
-| `image-create` | 单次生图 | `--waitSeconds 120` 同步等结果；0 / 不传 = 只提交拿 `taskId` |
-| `image-create-batch` | 批量生图 | `--inputFile` 见 [`../references/batch-input-file.md`](../references/batch-input-file.md) |
+- **不要靠记忆写参数**：模型分组、通道、`quality`、`ratio`、候选图数量、参考图类型都可能变；每次以实时查询结果为准。
+- **估价必须用正式参数**：prompt、参考图片、清晰度、比例、候选图数量都会影响费用；不要用样例 prompt 或默认参数替正式请求估价。
+- **`-f json` 是给 agent 解析的**：长输出要用 `jq` / `node` 抽字段，避免整段 JSON 或整张模型表进入上下文。
+- **候选图数量不是固定参数名**：有些模型用 `generateNum`，有些用 `directGenerateNum`，也有模型不支持一次多张；只按 `model-options` 给出的 CLI flag 传。
+- **用户沟通用自然名称**：说“参考图片 / 角色参考图片 / 风格参考图片”，不要直接对用户说 `iref` / `cref` / `sref`；这些只在写命令时出现。
+- **本地图片会自动转 webp**：CLI 上传本地图片前会转成 webp 缓存文件，并尽量压到 10MB 内；不覆盖原图。
+- **提交前确认关键选择**：模型组 / 通道、最终 prompt、参考素材、清晰度、比例、候选图数量、预估积分、项目组余额、等待策略。
 
-参数分类：
+## 3. AWB 经验
 
-- **必到位**：`--modelGroupCode`、`--prompt`
-- **常见**：`--quality`、`--ratio`、`--generateNum`、`--irefFiles` / `--iref`
-- **模型特定**：`--cref` / `--crefFiles`（人物参考）、`--sref` / `--srefFiles`（风格参考）、`--directGenerateNum`、`--customResolution`（FLUX）
-- **高级**：`--promptParamsJson`（整体覆盖 JSON）、`--dryRun true`、`--projectGroupNo`、`--pollIntervalMs`
-
-## 3. 标准流程
-
-```bash
-# 1) 看参数白名单
-"$AWB_CMD" model-options --modelGroupCode <g> -f json
-
-# 2) 预估
-"$AWB_CMD" image-fee --modelGroupCode <g> --prompt "一只小狗" \
-  --quality 1K --ratio 16:9 --generateNum 1 -f json
-
-# 3) 用户确认后，正式提交（同步等结果）
-"$AWB_CMD" image-create --modelGroupCode <g> --prompt "一只小狗" \
-  --quality 1K --ratio 16:9 --generateNum 1 --waitSeconds 120 -f json
-```
-
-提交前给用户确认的最小摘要：
-
-- 模型 / 通道：`modelGroupCode`，并说明是否 Discount / Fast / Pro
-- 参数：`ratio`、`quality`（如 `1K/2K/4K`，以 `model-options` 可选值为准）、`generateNum` / `directGenerateNum`，以及模型不支持而省略的参数
-- 输入：最终 prompt；参考图本地路径或 backendPath；参考类型（`iref` / `cref` / `sref`）
-- 费用：预计积分、项目组余额、提交后预计剩余
-- 等待：单图默认可 `--waitSeconds 120`；长耗时或用户要继续做别的事时改异步，先返回 `taskId`
-
-## 4. 典型场景
-
-### 4.1 参考图（iref：画面参考；cref：人物；sref：风格）
-
-```bash
-# 本地图：CLI 自动上传
-"$AWB_CMD" image-create --modelGroupCode <g> --prompt "参考图里的角色在雨夜奔跑" \
-  --quality 1K --ratio 16:9 --generateNum 1 \
-  --irefFiles "./a.webp,./b.webp" --waitSeconds 120 -f json
-
-# 已上传过：直接传 backendPath
-"$AWB_CMD" image-create --modelGroupCode <g> --prompt "..." \
-  --iref "/material/20260423/xxx.webp" --waitSeconds 120 -f json
-```
-
-### 4.2 GPT Image 2（两个分组）
-
-- `GPT2_ImageCreate_Discount_Group`（折扣）：`paramKeys=ratio,iref,prompt`，不带 `--quality` / `--generateNum`；比例枚举更全，适合便宜试片 / 分镜草稿。
-- `GPT2_ImageCreate_Group`（默认）：`paramKeys=ratio,quality,iref,prompt`，可带 `--quality 1k|2k|4k`；仍不带 `--generateNum`，适合正式质量控制。
-
-```bash
-"$AWB_CMD" image-create --modelGroupCode GPT2_ImageCreate_Discount_Group \
-  --prompt "赛博朋克少女，霓虹街头，电影感" --ratio 16:9 \
-  --irefFiles "./ref.webp" --waitSeconds 120 -f json
-
-"$AWB_CMD" image-create --modelGroupCode GPT2_ImageCreate_Group \
-  --prompt "赛博朋克少女，霓虹街头，电影感" --ratio 9:16 \
-  --quality 2k --irefFiles "./ref.webp" --waitSeconds 120 -f json
-```
-
-### 4.3 千问（无 ratio，用 directGenerateNum）
-
-```bash
-"$AWB_CMD" image-create --modelGroupCode WX_ImageCreate_Group \
-  --prompt "..." --directGenerateNum 4 \
-  --irefFiles "./a.webp" --waitSeconds 120 -f json
-```
-
-### 4.4 Banana Pro / Nano Banana 2（典型多图返回）
-
-```bash
-"$AWB_CMD" image-create --modelGroupCode Nano_Banana2_ImageCreate_Group_Discount \
-  --prompt "..." --quality 1K --ratio 16:9 --generateNum 4 \
-  --irefFiles "./a.webp" --waitSeconds 120 -f json
-```
-
-### 4.5 分镜指挥图（给视频参考模型控镜头切换）
-
-用 Banana Pro / Nano Banana / GPT Image 2 这类生图模型，基于人物图和场景图先生成**一张** 4 宫格 / 9 宫格分镜图。后续把这张图作为 `分镜指挥图`，再和普通人设图 / 场景图一起传给已接入且支持参考图 / 多参考的生视频模型，例如 Seedance 2.0 / Fast、可灵 3.0-Omni、Grok 3、Vidu Q2 Pro。
-只有 Seedance 2.0 主体资产路线才额外使用 `--refSubjects`。详细流程见 [`../references/shotboard-reference-image.md`](../references/shotboard-reference-image.md)。
-
-```bash
-"$AWB_CMD" image-create --modelGroupCode Nano_Banana2_ImageCreate_Group_Discount \
-  --prompt "参考图1是人物小莉，参考图2是咖啡馆场景。生成一张9宫格短剧分镜指挥图，整体9:16竖屏；9格依次是建立镜头、人物入画、坐下、听到消息、情绪特写、低声说话、手部特写、起身、门口回头。保持人物服装和场景一致；每格构图清晰、电影感、无字幕、无水印。" \
-  --quality 1K --ratio 9:16 --generateNum 1 \
-  --irefFiles "./person.webp,./scene.webp" --waitSeconds 120 -f json
-```
-
-GPT Image 2 折扣组不要带 `quality` / `generateNum`；如果需要 2K / 4K，换默认组并只加 `quality`，不要加 `generateNum`：
-
-```bash
-"$AWB_CMD" image-create --modelGroupCode GPT2_ImageCreate_Discount_Group \
-  --prompt "参考图1是人物小莉，参考图2是咖啡馆场景。生成一张4宫格短剧分镜指挥图，整体16:9横屏；四格依次是建立镜头、人物中景、情绪特写、离开背影；保持人物和场景一致，无字幕无水印。" \
-  --ratio 16:9 --irefFiles "./person.webp,./scene.webp" --waitSeconds 120 -f json
-```
-
-### 4.6 批量
-
-```bash
-# 通用默认放命令行，单条差异写进输入文件
-"$AWB_CMD" image-create-batch --inputFile ./image-batch.json \
-  --modelGroupCode <g> --quality 1K --ratio 16:9 --generateNum 1 \
-  --dryRun true -f json
-"$AWB_CMD" image-create-batch --inputFile ./image-batch.json --modelGroupCode <g> -f json
-```
-
-输入文件格式详见 [`../references/batch-input-file.md`](../references/batch-input-file.md)。
-
-## 5. 经验引导
-
-- **先 `model-options`，后创作**：别把 Nano Banana 的默认 `--quality 1K --ratio 16:9 --generateNum 1` 直接套到 GPT Image 2 / Midjourney / 千问—— `paramKeys` 里没有的参数传了会报错。GPT Image 2 默认组支持 `quality`，折扣组不支持；两个组都不支持 `generateNum`。
-- **`image-fee` 优先于裸 `--dryRun`**：前者已经包含预估积分 + 项目组余额 + 提交后剩余；`--dryRun true` 适合结构很复杂（故事板 / 多参考）时再核对整段 payload。
-- **确认不是费用大小决定的**：即使只花 1 积分，也要先展示最终 prompt / 模型通道 / 参数并等用户确认，除非用户明确授权自动提交。
-- **没给清晰度 / 比例就不要静默提交**：先问用户，或明确建议默认值（如试片 `1K`、竖屏 `9:16` / 横屏 `16:9`）并等待确认；GPT Image 2 折扣组不能选 2K/4K 档，默认组可以选 `1K/2K/4K`。
-- **`--waitSeconds 120` 的边界**：生图一般几十秒；写大了是安全的。超时也不扣积分重试——`task-wait` 后续兜底。
-- **异步台账**：不等结果或批量提交时加 `--taskRecordFile .awb/tasks.jsonl`；后续用 `task-record-poll` 批量恢复，或 `task-wait` 单个等待，并带同一个参数把结果追加回台账。
-- **`generateNum` 是"最终返回几张"**：不是所有模型都支持，以 `paramKeys` 为准；千问用 `--directGenerateNum`。
-- **分镜指挥图通常 `generateNum=1`**：目标是一张 4 / 9 宫格图，不是 4 / 9 张独立返回图；比例跟最终视频一致（竖屏 `9:16`，横屏 `16:9`）。
-- **`--irefFiles "./a.webp,./b.webp"` 是逗号分隔**：不是 JSON 数组。
-- **webp 是优选**：参考图上传支持 webp / png / jpg；部分模型 `supportedFileTypes` 只接 webp（见 `model-options`）。转码后上传更稳。
-- **重复批量时**：把通用参数（modelGroupCode / quality / ratio）丢命令行，单条独立字段（prompt / irefFiles）放文件；别把所有东西塞文件里，维护成本高。
+- **GPT Image 2 / Banana / 千问等都不要写死能力**：同一家族也可能有多个分组；先查当前账号开放了什么，再决定是否能传 2K / 4K、比例、数量参数。
+- **分镜指挥图是一张图**：4 宫格 / 9 宫格是把多个镜头排在一张参考图片里，通常只需要 1 张候选图，不是生成 4 / 9 张独立图片。
+- **分镜图不替代人物参考**：它主要控制镜头顺序和构图；人物一致性仍靠角色参考图片或 Seedance 2.0 主体资产，场景图也建议单独保留。
+- **生图等待通常可以短窗口同步**：普通单图可等 90–180 秒；高分辨率、多参考、多张候选图、批量任务优先异步并写 `--taskRecordFile`。
+- **webp 通常更稳**：自动转码只是上传前处理；具体格式限制仍看 `model-options`。
+- **批量时通用参数放命令行，差异放输入文件**：每条不同的 prompt / 参考图 / 比例写在批量文件里，公共模型组和默认规格放命令行更好维护。

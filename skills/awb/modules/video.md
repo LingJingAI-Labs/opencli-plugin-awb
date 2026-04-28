@@ -1,317 +1,60 @@
 # Video Module
 
-生视频覆盖四种主要模式，**不能混用**：纯提示词 / 首尾帧 / 参考生视频 / 故事板。
-
-## 1. 何时使用
+生视频先确定 **模式、模型能力、成本、等待策略**。具体 flag 和可选值以 `video-models`、`model-options`、`video-create --help` 为准，skill 只记录 AWB 里容易踩坑的经验。
 
-- 生成一段视频（有 / 无首帧、有 / 无参考、单镜头或分镜）
-- 预估消耗 / 干跑
-- 批量生视频
-- 用户提到“真人图 / 场景图 / 控音色 / 说话 / 对口型 / 短剧片段”时，按下面 **4.7 真人短剧** 处理：先解释 Seedance 2.0 主体发布 / 加白链路，再给一次性 webp 直传备选
-- 用户提到“4 宫格 / 9 宫格 / 分镜图 / 指挥图 / 镜头切换控制”时，按下面 **4.8 分镜指挥图** 处理：先生图得到指挥图，再作为参考生视频输入
-
-## 2. 命令与模式
+## 1. 先判断模式
 
-| 命令 | 用途 | 路由提醒 |
-|------|------|----------|
-| `video-fee` | 估算单次生视频积分与项目组余额 | Token 计费模型（如 Seedance 2.0）特别要先跑这个 |
-| `video-create` | 单次生视频 | `--waitSeconds 180` 同步等；视频通常比图慢，建议给大一点 |
-| `video-create-batch` | 批量生视频 | `--inputFile` 见 [`../references/batch-input-file.md`](../references/batch-input-file.md) |
-| `seedance-subtitle-remove` | Seedance 2.0 生成后去字幕 | 只接火山原始 Seedance 2.0 视频链接；生成后 24 小时内处理 |
-| `seedance-subtitle-status` | 查询去字幕任务 | asset-edit 任务 ID；可短窗口等待 |
-| `aihubmix-video-status` | 查询 AiHubMix 外部视频任务 | HappyHorse 等外部任务；默认读 `AIHUBMIX_API_KEY` |
-| `aihubmix-video-download` | 下载 AiHubMix 视频结果 | 调 `/v1/videos/{video_id}/content` 保存 mp4 |
-
-### 四种模式
+四种主要模式不要混用：
 
-| 模式 | 核心参数 | 适用 |
-|------|----------|------|
-| 纯提示词 | `--prompt` | 模型 `supportsPromptOnly=true` |
-| 首尾帧 | `--frameText` / `--frameFile` / `--frameUrl` (+ `--tailFrame*`) | 看模型 `frameFeature`（可首 / 可首尾 / 仅首） |
-| 参考生视频 | `--refImageFiles` / `--refVideoFiles` / `--refAudioFiles` / `--refSubjects` + prompt 里 `@名称` | 看模型 `参考模式` / `refFeature` |
-| 故事板 | `--storyboardPrompts "镜头1：xxx||镜头2：yyy"` | 仅 `paramKeys` 含 `multi_prompt`（可灵 3.0 / 3.0-Omni 等）；详见 [`../references/storyboard.md`](../references/storyboard.md) |
+| 模式 | 何时用 | 核心提醒 |
+|------|--------|----------|
+| 纯提示词 | 模型支持 prompt-only | 先看 `supportsPromptOnly` |
+| 首帧 / 首尾帧 | 有确定起始画面或结尾画面 | 看 `frameFeature`，图生视频通常跟随源图比例 |
+| 参考生视频 | 需要人物、场景、动作、音频参考 | 用命名参考，prompt 里用自然名称引用 |
+| 故事板 | 模型支持 `multi_prompt` | 不要再混首帧、参考图、主体资产 |
 
-**不要混用**：四种模式互斥。故事板模式不要再混用 `frame*` / `ref*`；首尾帧模式的 `frame*` 和参考生视频模式的 `ref*` 也不能同时出现。
+正式提交前必须确认模型组、通道、模式、时长、清晰度、比例、声音开关、参考素材绑定、预估费用和等待方式。用户没明确授权“直接跑”时，不要静默提交。
 
-## 3. 标准流程
+## 2. 模型选择经验
 
-```bash
-# 1) 看能力
-"$AWB_CMD" model-options --modelGroupCode <g> -f json
+- 模型能力以实时 `video-models` 和 `model-options` 为准，不要凭旧文档硬写死。
+- 设计片段时先看 `video-models` 外层的 `时长 / 参考模式 / 特色能力`，最终提交前再用 `model-options` 复核。
+- `audio` / `needAudio` 是结果是否带声音的开关；带人物说话或音频参考时默认应打开，但控音色还需要模型支持音频参考并传音频素材。
+- Token 计费模型先跑 `video-fee`；同一模型有 Fast / Pro / Omni / 1080p 等通道时，要让用户确认成本取舍。
+- 用 `model-duration-estimate --modelGroupCode <g> -f json` 估平均耗时和建议等待窗口；低置信度时再查 `task-duration-stats` 或按经验异步提交。
 
-# 2) 预估
-"$AWB_CMD" video-fee --modelGroupCode <g> --frameFile ./frame.webp \
-  --quality 720 --generatedTime 5 --ratio 16:9 -f json
+## 3. 真人短剧 / 多参考
 
-# 3) 用户确认后，正式提交
-"$AWB_CMD" video-create --modelGroupCode <g> --frameFile ./frame.webp \
-  --quality 720 --generatedTime 5 --ratio 16:9 --waitSeconds 180 -f json
-```
+- 现在短剧常见路线是“人物 / 场景 / 可选音频参考”生成单镜头片段，再剪辑拼接；不要默认只走纯 prompt。
+- Seedance 2.0 / Seedance 2.0 Fast 做真人多段复用时，优先考虑 `subject-publish` / `subject-upload` 把人物注册成可复用主体，再用 `--refSubjects`。这条“加白 / 主体资产”链路只针对 Seedance 2.0 主体参考，不要泛化到 Grok、HappyHorse 或普通上传。
+- 试片、无主体权限、非 Seedance 主体链路时，直接用普通命名参考图 / 场景图即可。
+- 场景通常不是主体，不需要发布成主体；多次复用时可以先上传到生视频素材池再用 backendPath。
+- Vidu Q2 Turbo 是首帧 / 首尾帧路线；Vidu Q2 Pro 支持首帧 / 首尾帧和参考生但较老、最长 8 秒；Vidu Q3 Pro 当前已接入分组不是多参考路线。后续 Vidu Q3 多参考接入后，以实时模型表为准。
 
-提交前给用户确认的最小摘要：
+## 4. 分镜与故事板
 
-- 模型 / 通道：`modelGroupCode`，说明 Fast / Pro / Omni / Discount / 1080p 等取舍
-- 模式：纯提示词、首尾帧、参考生视频、故事板四选一；说明没有混用互斥参数
-- 参数：`ratio`、`quality`（如 `720/1080`，以 `model-options` 可选值为准）、`generatedTime`、是否输出声音、是否带音色参考、主体引用
-- 输入：最终 prompt / storyboard；帧图、参考图、参考视频、音频、主体 asset 的绑定关系
-- 费用：预计积分、项目组余额、提交后预计剩余；Token 计费模型必须先估算
-- 等待：视频默认异步或短窗口等待；超过窗口后保存 `taskId`，后续用 `task-wait` / `tasks` 取结果
+- `--storyboardPrompts` 是故事板模式，只给支持 `multi_prompt` 的模型用；它和参考图 / 主体资产不是同一条路线。
+- “4 宫格 / 9 宫格分镜指挥图”是另一条路线：先生图得到一张分镜参考图，再把它作为普通参考图喂给支持参考图的视频模型。视频 prompt 里必须说明只参考镜头顺序和构图，不要生成宫格边框、编号或字幕。
+- 分镜指挥图不替代人物图、主体资产或场景图；它主要负责镜头节奏。
 
-### 自动化默认路线（短剧 / 多参考 / 主体）
+## 5. Seedance 2.0 去字幕
 
-自动化生成短剧片段时，最常见不是纯 prompt 或首尾帧，而是**参考生视频**：Seedance 2.0 主体资产或普通人物形象图 + 场景图 + 可选音色。默认按这个顺序决策：
+- 只用于 Seedance 2.0 生成结果。
+- 输入必须是火山 / Seedance 2.0 原始结果链接，不要用下载后重新上传的 CDN 链接。
+- 免费链路需要在视频生成完成后 24 小时内提交，超过后通常只能走付费处理。
+- 用 `seedance-subtitle-remove` 提交，返回的 asset-edit 任务 ID 再用 `seedance-subtitle-status` 查。
 
-1. **Seedance 2.0 已有主体 / 多段复用**：用 `--refSubjects "角色=asset-..."` 引用人物主体；场景用 `--refImageFiles` / `--refImageUrls`。
-2. **只有人物形象图**：如果选 Seedance 2.0，先问是否要做成可复用主体；做剧、多镜头、同角色复用时先 `subject-publish`，试片或普通参考模型才直接 `--refImageFiles`。
-3. **要控音色**：上传 / 引用音频，用 `--refAudioFiles` / `--refAudioUrls`，左值绑定到同名人物主体或图片；异名用 `名称@绑定目标=文件` 或 `--refAudiosJson bindTo`。
-4. **要控镜头切换**：先用 Banana Pro / Nano Banana / GPT Image 2 出 4 / 9 宫格分镜指挥图，再把它作为一张参考图传给视频模型。
-5. **模型取舍**：效果优先用 Seedance 2.0 720p；预算优先用 Seedance 2.0 Fast 或 Grok 3；复杂多参考优先看可灵 3.0-Omni；Vidu Q2 Pro 可做参考生但模型较老，Vidu Q3 Pro 当前已接入分组是纯提示词 / 首帧路线。
-6. **成本控制**：Seedance 2.0 系列是 Token 计费，默认先 `video-fee`，默认 `720p`；只有用户明确要高质交付再上 `1080p`。
-7. **确认闸口**：短剧 / 说话 / 对口型任务通常成本和等待时间都更高，正式提交前必须让用户确认模型通道、时长、清晰度、主体/音频绑定和预计积分；用户明确说自动跑时才跳过。
-
-## 4. 典型场景
-
-### 4.1 纯提示词（需 `supportsPromptOnly=true`）
+## 6. HappyHorse / AiHubMix
 
-```bash
-"$AWB_CMD" video-create --modelGroupCode <g> \
-  --prompt "雨夜街头，人物缓慢走向镜头，电影感" \
-  --quality 720 --generatedTime 5 --ratio 16:9 --waitSeconds 180 -f json
-```
-
-### 4.2 首帧
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode <g> --frameFile ./frame.webp \
-  --prompt "保持首帧角色，镜头缓慢推进，人物抬头微笑" \
-  --quality 720 --generatedTime 5 --ratio 16:9 --waitSeconds 180 -f json
-```
+- `happyhorse-1.0-t2v/i2v/r2v/video-edit` 走 AiHubMix 外部计费，不消耗 AWB 项目组积分；默认读取 `AIHUBMIX_API_KEY`（兼容 `AIHUBMIX_KEY` / `AIHUBMIX_TOKEN`）。
+- `video-fee` 和 `video-create --dryRun true` 会估外部成本；默认价格按 AiHubMix HappyHorse 当前标价：720p 每秒 0.1395 美元，1080p 每秒 0.2479 美元，实际以 AiHubMix 账单为准。
+- HappyHorse 当前不支持音频 / 音色参考，不要传音频相关参数。
+- `happyhorse-1.0-i2v` 图生视频跟随输入图比例，不要让用户再选 `16:9 / 9:16`，也不要额外传比例或尺寸。
+- `happyhorse-1.0-r2v` 是参考图生视频：参考图用公网 URL，prompt 中按 `character1`、`character2` 指代顺序。分辨率、比例、时长按 AiHubMix 当前文档和 CLI 干跑结果确认。
+- AiHubMix 返回的是 `video_id`，用 `aihubmix-video-status` / `aihubmix-video-download`，也可接入通用 `task-wait --taskType AIHUBMIX_VIDEO`。
 
-### 4.3 首尾帧
+## 7. 等待与批量
 
-```bash
-"$AWB_CMD" video-create --modelGroupCode <g> \
-  --frameFile ./frame.webp --tailFrameFile ./tail.webp \
-  --quality 720 --generatedTime 5 --ratio 16:9 --waitSeconds 180 -f json
-```
-
-### 4.4 只描述首帧（文字帧）
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode <g> --frameText "镜头缓慢推进" \
-  --quality 720 --generatedTime 5 --ratio 16:9 --waitSeconds 180 -f json
-```
-
-### 4.5 多参考（图 / 视频 / 音频）
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode <g> --prompt "@角色A 在雨夜奔跑" \
-  --refImageFiles "角色A=./char.webp,背景=./bg.webp" \
-  --refVideoFiles "动作=./motion.mp4" \
-  --quality 720 --generatedTime 5 --ratio 16:9 --waitSeconds 180 -f json
-```
-
-`@名称` 在 prompt 里引用，**名称必须与 `--refImageFiles / --refSubjects` 里的左值一致**。
-
-### 4.6 主体引用 + 音频（常用 wr 真人说话）
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode <g> --prompt "@小莉 对镜说话" \
-  --refSubjects "小莉=asset-xxxxxxxx" \
-  --refAudioFiles "小莉=./voice.mp3" \
-  --quality 720 --generatedTime 5 --ratio 9:16 --waitSeconds 180 -f json
-```
-
-音频参考**默认绑定到同名图片 / 主体**；不同名要用 `--refAudiosJson` 的 `bindTo`。
-
-### 4.7 真人短剧：真人图 + 场景图 + 控音色
-
-用户说“真人”“短剧”“控制音色 / 说话 / 对口型”时，不要只推荐 `--refImageFiles` 一步法。先把路线讲清楚：
-
-1. **模型选择**：效果优先 Seedance 2.0（默认 720p，1080p 太贵时先提醒）；成本 / 速度优先 Seedance 2.0 Fast；便宜试片可考虑 Grok 3；复杂多参考优先看可灵 3.0-Omni；Vidu Q2 Pro 可做参考生但模型较老，Vidu Q3 Pro 当前已接入分组是纯提示词 / 首帧路线。
-2. **角色一致性优先路径**：Seedance 2.0 真人角色图先走 `subject-publish` / `subject-upload` 发布为主体（也就是平台加白 / 可引用资产链路），拿返回的 `nextRefSubject` 填 `--refSubjects`。其他普通参考模型不要走这条，用 `--refImageFiles` / `--refImageUrls`。
-3. **场景图路径**：场景不是主体，通常直接 `--refImageFiles "场景=./scene.webp"`，或先 `upload-files --sceneType material-video-create` 后用 `--refImageUrls` 复用。
-4. **一次性备选路径**：如果只是试片、账号无主体权限、或用户明确说“不上传 / 直接传 webp”，可以直接 `--refImageFiles "小莉=./person.webp,咖啡馆=./scene.webp"`；但要提醒这不是可复用主体，跨片一致性弱于 `--refSubjects`。
-5. **音色路径**：先用外部 TTS / 录音产出 `mp3` / `wav`，再用 `--refAudioFiles "小莉=./voice.mp3"`；左值和主体 / 图片名保持一致，默认绑定到同名角色。
-6. **短剧分镜**：一个任务通常做 5–10 秒单镜头；多镜头短剧拆成多段分别生成，再剪辑拼接。故事板模式和音频 / 主体参考不要默认混用，除非 `model-options` 明确支持且参数白名单允许。
-
-模型建议话术：
-
-- **Seedance 2.0**：目前效果最好、最贵；默认推荐 `720p`，`1080p` 只在预算允许时上。
-- **Seedance 2.0 Fast**：自动化批量更常用，便宜 / 快，但质量会降。
-- **可灵 3.0-Omni**：可以用图 / 视频多参考和故事板，常用于更复杂参考；`--audio true` 是让结果输出声音的开关，人物说话有声时通常要开。若要控音色，还必须有 `refAudio*` 且 `model-options` 支持音频参考。
-- **Grok**：便宜备选，可用于试片或低成本普通参考生成，不要承诺稳定口型 / 音色效果。
-- **Vidu**：`Vidu Q2 Turbo` 是首帧 / 首尾帧路线；`Vidu Q2 Pro` 支持首帧 / 首尾帧和图 / 视频参考生，最长 8 秒但模型较老；`Vidu Q3 Pro` 支持纯提示词 / 首帧和声音开关，最长 16 秒，当前已接入分组不是多参考。未来接入 Vidu Q3 多参考后再按 `model-options` 更新。
-
-推荐流程（可复用真人主体 + 场景图 + 音频）：
-
-```bash
-# 1) 真人图上传到生视频素材池（可选，但便于复用 backendPath）
-CHAR_PATH=$("$AWB_CMD" upload-files --files ./person.webp \
-  --sceneType material-video-create -f json | jq -r '.[0].backendPath // .[0].素材路径')
-
-# 2) Seedance 2.0 发布 / 加白为可复用主体，直接取 nextRefSubject
-NEXT_REF=$("$AWB_CMD" subject-publish --name 小莉 \
-  --primaryUrl "$CHAR_PATH" -f json | jq -r '.nextRefSubject')
-
-# 3) 先估价，再正式生成
-"$AWB_CMD" video-fee --modelGroupCode JiMeng_Seedance_2_Fast_VideoCreate_Group \
-  --prompt "@小莉 在 @咖啡馆 里低声说话，口型自然，短剧镜头" \
-  --refSubjects "$NEXT_REF" \
-  --refImageFiles "咖啡馆=./scene.webp" \
-  --refAudioFiles "小莉=./voice.mp3" \
-  --quality 720 --generatedTime 5 --ratio 9:16 -f json
-
-"$AWB_CMD" video-create --modelGroupCode JiMeng_Seedance_2_Fast_VideoCreate_Group \
-  --prompt "@小莉 在 @咖啡馆 里低声说话，口型自然，短剧镜头" \
-  --refSubjects "$NEXT_REF" \
-  --refImageFiles "咖啡馆=./scene.webp" \
-  --refAudioFiles "小莉=./voice.mp3" \
-  --quality 720 --generatedTime 5 --ratio 9:16 --waitSeconds 240 -f json
-```
-
-一次性直传 webp（试片 / 无主体权限 / 用户明确不走加白）：
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode JiMeng_Seedance_2_Fast_VideoCreate_Group \
-  --prompt "@小莉 在 @咖啡馆 里低声说话，口型自然，短剧镜头" \
-  --refImageFiles "小莉=./person.webp,咖啡馆=./scene.webp" \
-  --refAudioFiles "小莉=./voice.mp3" \
-  --quality 720 --generatedTime 5 --ratio 9:16 --waitSeconds 240 -f json
-```
-
-### 4.8 分镜指挥图 + 人设图 + 场景图
-
-如果用户要更稳定地控制分镜切换，可以先用生图模型生成一张 4 / 9 宫格“分镜指挥图”，再把它作为参考图喂给参考生视频模型。它和 `--storyboardPrompts` 不是同一种模式：这里仍然走参考生视频 `multi_param`，不要混用故事板模式。完整生图流程见 [`../references/shotboard-reference-image.md`](../references/shotboard-reference-image.md)。
-
-典型输入组合：
-
-- `分镜指挥图`：来自 Banana Pro / Nano Banana / GPT Image 2 的 4 / 9 宫格图，用来控制镜头顺序、构图和节奏。
-- `Seedance 2.0 主体资产 / 普通人设图`：Seedance 2.0 用 `--refSubjects` 最稳；其他普通参考模型或试片可用 `--refImageFiles`。
-- `场景图`：继续单独作为命名图片参考，别只依赖分镜图里的小场景。
-- `音色`：需要控音色时继续 `--refAudioFiles` / `--refAudioUrls` 绑定到同名人物。
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode JiMeng_Seedance_2_VideoCreate_Group \
-  --prompt "参考 @分镜指挥图 的1到9格镜头顺序、构图和节奏生成连续短剧视频；保持 @小莉 的人物形象，场景是 @咖啡馆；不要出现九宫格边框、编号或字幕，画面自然连续，口型自然。" \
-  --refSubjects "小莉=asset-xxxxxxxx" \
-  --refImageFiles "分镜指挥图=./shotboard.webp,咖啡馆=./scene.webp" \
-  --refAudioFiles "小莉=./voice.mp3" \
-  --quality 720 --generatedTime 10 --ratio 9:16 --waitSeconds 240 -f json
-```
-
-无主体权限 / 快速试片：
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode <video_g> \
-  --prompt "参考 @分镜指挥图 的4格镜头顺序生成视频；@小莉 是人物形象，@咖啡馆 是场景；不要出现宫格边框和编号。" \
-  --refImageFiles "分镜指挥图=./shotboard.webp,小莉=./person.webp,咖啡馆=./scene.webp" \
-  --quality 720 --generatedTime 5 --ratio 9:16 --waitSeconds 240 -f json
-```
-
-可用于 Seedance 2.0 / Fast、可灵 3.0-Omni、Grok 3、Vidu Q2 Pro 等已接入且支持参考图 / 多参考的视频模型；实际传参前仍以 `video-models` 的 `参考模式` / `时长` 和 `model-options` 的 `multi_param` / `refFeature` / `paramKeys` 为准。这里说的是普通参考图路线，不包含未接入模型。
-
-### 4.9 故事板（仅支持的模型）
-
-```bash
-"$AWB_CMD" video-create --modelGroupCode KeLing3_VideoCreate_Group \
-  --storyboardPrompts "镜头1：城市远景||镜头2：人物走近镜头" \
-  --quality 720 --generatedTime 10 --ratio 16:9 --waitSeconds 240 -f json
-```
-
-新版本 CLI 会按 `--generatedTime` 自动给每个分镜补 `index` 和秒级 `duration`；旧版本若报 `each entry in multi_prompt must have index and duration`，先更新 CLI。
-
-详细写法见 [`../references/storyboard.md`](../references/storyboard.md)。
-
-### 4.10 批量
-
-```bash
-"$AWB_CMD" video-create-batch --inputFile ./video-batch.json \
-  --modelGroupCode <g> --quality 720 --generatedTime 5 --ratio 16:9 \
-  --dryRun true -f json
-```
-
-### 4.11 Seedance 2.0 生成后去字幕
-
-只在 **Seedance 2.0** 生视频结果上用。输入必须是火山 / Seedance 2.0 的原始视频链接，不要用下载后重新上传的 CDN 链接或任意公网视频链接。免费链路要求在视频生成完成后 **24 小时内** 提交；超过 24 小时通常只能走付费处理。
-
-```bash
-# 1) 先等 Seedance 2.0 视频完成，拿原始火山结果链接
-"$AWB_CMD" task-wait --taskId <videoTaskId> --taskType VIDEO_GROUP \
-  --waitSeconds 300 -f json
-
-# 2) 24 小时内提交去字幕任务
-"$AWB_CMD" seedance-subtitle-remove \
-  --videoUrl "<volc-seedance-original-video-url>" \
-  --name "<clip-name>" -f json
-
-# 3) 后续查询；也可以创建时加 --waitSeconds 300 短窗口等
-"$AWB_CMD" seedance-subtitle-status --taskId <assetEditTaskId> -f json
-```
-
-`seedance-subtitle-remove` 返回的 `去字幕任务ID` 是 asset-edit 的 `public_id`，后续传给 `seedance-subtitle-status --taskId`。如果 asset-edit 需要私有登录态，传 `--authorization "<Authorization header>"`，或设置 `ASSET_EDIT_AUTHORIZATION` / `ASSET_EDIT_TOKEN`。CLI 会对 URL 和 24 小时做本地保护；确认是有效原始链接或付费链路时才用 `--force true`。
-
-### 4.12 AiHubMix / HappyHorse 外部视频模型
-
-HappyHorse 暂未接入灵境 AWB 积分模型表时，可直接用 AiHubMix key 走外部计费。CLI 默认读取 `AIHUBMIX_API_KEY`（也兼容 `AIHUBMIX_KEY` / `AIHUBMIX_TOKEN`），不消耗 AWB 项目组积分；成本归属由 AiHubMix key 所在项目承担。除当前进程环境外，CLI 也会安全解析用户级 env 文件中的简单 `export AIHUBMIX_KEY=...` 行（如 `~/.zshrc`、`~/.zprofile`、`~/.awb.env`、`~/.aihubmix/env`），不会执行 shell 脚本。
-
-`video-fee` 和 `video-create --dryRun true` 会给外部成本估算：默认按 AiHubMix HappyHorse 价格 `720p = 0.1395 USD/s`、`1080p = 0.2479 USD/s`、`1 USD = 7.2 CNY` 估算，并返回 `estimatedCostUsd`、`estimatedCostCny`、`estimatedUsdPerSecond`、`estimatedResolutionTier`。实际扣费以 AiHubMix 账单为准；如 AiHubMix 实际单价变动，可用 `AIHUBMIX_HAPPYHORSE_720P_USD_PER_SECOND`、`AIHUBMIX_HAPPYHORSE_1080P_USD_PER_SECOND`、`AIHUBMIX_CNY_PER_USD` 覆盖。
-
-支持的 `modelGroupCode`：
-
-- `happyhorse-1.0-t2v`：文生视频，只需要 `--prompt`
-- `happyhorse-1.0-i2v`：图生视频，用 `--frameUrl` / `--frameFile` / `--refImageUrls` / `--refImageFiles` 传首帧或图片参考
-- `happyhorse-1.0-r2v`：参考图生视频，用 `--refImageUrls` 传 1-9 张公网图片 URL；prompt 里用 `character1`、`character2` 按图片顺序指代
-- `happyhorse-1.0-video-edit`：视频编辑，必须传 `--refVideoUrls` 或 `--refVideoFiles`
-
-`happyhorse-1.0-i2v` 的输出比例跟随输入图，不要让用户选择 `16:9` / `9:16`，也不要传 `--ratio` / `--size` / `--quality` / `--resolution`。竖屏直播截图就直接作为 `--frameFile` / `--frameUrl` 传入，CLI 会把它作为 `input_reference`。
-
-`happyhorse-1.0-r2v` 走 AiHubMix 的 `input + parameters` 请求体：`input.prompt` 必填，`input.media` 必填且只接受 `reference_image`，`parameters.resolution` 支持 `1080P` / `720P`（默认 `1080P`），`parameters.ratio` 支持 `16:9` / `9:16` / `3:4` / `4:3` / `1:1`（默认 `16:9`），`parameters.duration` 为 3-15 秒整数（默认 5）。参考图限制：公网 HTTP/HTTPS URL，JPEG/JPG/PNG/WEBP，短边不低于 400px，单张不超过 10MB。
-
-HappyHorse 当前不支持音频 / 音色参考；不要传 `--refAudioFiles` / `--refAudioUrls` / `--audio` / `--needAudio`。需要控音色时改用 Seedance 2.0 / Fast 等 `model-options` 明确显示支持音频参考的 AWB 原生视频模型。
-
-```bash
-# 文生视频
-"$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-t2v \
-  --prompt "雨夜街头，镜头缓慢推进，电影感" \
-  --generatedTime 5 --size 1280x720 -f json
-
-# 图生视频
-"$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-i2v \
-  --prompt "保持首帧人物，微风吹动头发，镜头轻微推进" \
-  --frameFile ./frame.webp --generatedTime 5 -f json
-
-# 参考图生视频
-"$AWB_CMD" video-create --modelGroupCode happyhorse-1.0-r2v \
-  --prompt "character1 在雨夜街头看向镜头，电影感推镜" \
-  --refImageUrls "character1=https://example.com/character.jpg" \
-  --quality 1080P --ratio 16:9 --generatedTime 5 -f json
-
-# 查询并下载
-"$AWB_CMD" aihubmix-video-status --taskId <video_id> --waitSeconds 300 -f json
-"$AWB_CMD" aihubmix-video-download --taskId <video_id> --outputFile ./output.mp4
-```
-
-AiHubMix 任务返回的是 `video_id`，不是 AWB 后端 taskId；推荐直接用 `aihubmix-video-status` 查询，也可用 `task-wait --taskType AIHUBMIX_VIDEO --taskId <video_id>` 接入通用等待链路。`video-create --dryRun true` 会预览 AiHubMix 请求体和外部成本估算，不会查 AWB 余额。
-
-## 5. 经验引导
-
-- **先确认模式**：`model-options` 看 `supportsPromptOnly` / `frameFeature` / `refFeature` / `paramKeys`；不支持纯 prompt 的模型传了 `--prompt` 也得补帧或参考。
-- **四种模式不共存**：选了故事板就不要传 `frame*` / `ref*`；选了首尾帧就别传 `ref*`；选了参考生视频就别传 `frame*`。想更底层的控制去 `--framesJson` / `--promptParamsJson`。
-- **`@名称` 要和命名参考对得上**：
-  - `--prompt "@角色A 在雨夜"` + `--refImageFiles "角色A=./a.webp"` → 一致 ✓
-  - `--prompt "@charA ..."` + `--refImageFiles "角色A=..."` → 不一致 ✗
-- **`--refAudioFiles` 的绑定是隐式的**：默认按同名图片 / 主体配对（`角色A=./voice.mp3` 绑定到 `角色A` 的图 / 主体）。混用异名时用 `--refAudiosJson` 的 `bindTo` 显式指。
-- **真人短剧别混淆主体链路**：用户说真人 / 做剧 / 多段复用且选择 Seedance 2.0 时，优先建议 `subject-publish` / `subject-upload` 发布成主体（平台加白 / 可引用资产）再 `--refSubjects`；只有试片、无权限、选普通参考模型或用户明确要直传时，才用 `--refImageFiles "角色=./person.webp"`。
-- **场景图不需要发布成主体**：场景通常直接作为命名图片参考传入；如果要多次复用，先 `upload-files --sceneType material-video-create` 再用 `--refImageUrls`。
-- **分镜指挥图是参考图，不是故事板模式**：4 / 9 宫格图作为 `--refImageFiles "分镜指挥图=..."` 进入参考生视频；prompt 必须写清“按格子顺序参考构图，但不要出现宫格边框 / 编号 / 字幕”。
-- **`--quality` 的数值单位跟模型走**：生视频常见 `720` / `1080`（数字）；生图常见 `1K` / `2K`（字母）。看 `model-options` 的 `约束` 列。
-- **`--generatedTime` 单位是秒**：先看 `video-models` 的 `时长` 列，再用 `model-options` 复核。Seedance 2.0 / Fast 支持 4-15 秒；可灵 3.0 / 3.0-Omni 支持 3-15 秒；Grok 3 当前固定 10 秒；Vidu Q2 Turbo / Q2 Pro 支持 2-8 秒；Vidu Q3 Pro 支持 1-16 秒。可灵 3.0（非 Omni）的参考生视频 `multi_param` 路径截至 2026-04-24 实测 10 秒可创建、15 秒会失败；可灵 3.0-Omni 同路径 15 秒已实测可成功。CLI 当前只拦截已验证会失败的非 Omni 15 秒路径。
-- **Token 计费模型（Seedance 2.0 系列）先 `video-fee`**：和按张 / 按次计费的不一样，提示词长度 / 参考数量都会推高成本。
-- **默认清晰度是 720p**：Seedance 2.0 可用 1080p，但成本很高；除非用户明确要高质量，否则自动化默认 720p。
-- **Seedance 2.0 去字幕要趁早**：如果用户要求“生成完去字幕 / 去水印”，只对 Seedance 2.0 结果调用 `seedance-subtitle-remove`，并在完成后 24 小时内用原始火山链接提交。
-- **AiHubMix HappyHorse 是外部计费**：`happyhorse-1.0-*` 不走 AWB 积分；先确认用户接受用 AiHubMix key 计费，再用 `video-create` 提交，用 `aihubmix-video-status/download` 查取结果。
-- **没给清晰度 / 比例 / 时长就不要静默提交**：先问用户，或明确建议默认值（如试片 `720p`、`5s`、竖屏 `9:16` / 横屏 `16:9`）并等待确认；`1080p` / Pro / 高质通道必须确认成本。
-- **故事板、声音开关不是所有模型都有**：查 `video-models` 的 `特色能力` 列；也能在 `paramKeys` 里看 `multi_prompt` / `audio` 是否存在。`audio` / `needAudio` 是是否让结果带声音的控制；带人物说话或音频参考时默认开。故事板分镜 `duration` 是秒，总和必须等于 `--generatedTime`。
-- **`--waitSeconds 180` 起步**：视频任务比生图慢得多；想完全异步就 `--waitSeconds 0`，拿 `taskId` 走 `task-wait`。
-- **异步台账**：视频默认建议加 `--taskRecordFile .awb/tasks.jsonl`；后续用同一个文件跑 `task-record-poll` 批量查回结果，或 `task-records --pendingOnly true` 只查看还没记录完成结果的任务。
+- 单个短视频可以短窗口等待；几分钟以上、Token 计费、高复杂度和批量任务默认异步。
+- 正式提交建议加 `--taskRecordFile .awb/tasks.jsonl`，便于沙箱关闭后恢复查询；台账不是后端查询的必要条件，但能避免回来后靠时间和 prompt 反找。
+- 批量先 `--dryRun true`，确认条数、模型通道、公共参数、预估总费用、最低剩余余额、并发数和查询策略后再提交。

@@ -305,6 +305,8 @@ function safeFileName(filePath) {
 function guessMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
+    case '.bmp':
+      return 'image/bmp';
     case '.png':
       return 'image/png';
     case '.jpg':
@@ -321,6 +323,110 @@ function guessMimeType(filePath) {
     default:
       return 'application/octet-stream';
   }
+}
+
+function parsePositiveIntEnv(name) {
+  const value = Number.parseInt(String(process.env[name] ?? ''), 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function defaultImageUploadMaxBytes(options = {}) {
+  if (options.maxImageBytes != null) {
+    const value = Number(options.maxImageBytes);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+  const bytes = parsePositiveIntEnv('AWB_IMAGE_UPLOAD_MAX_BYTES');
+  if (bytes) return bytes;
+  const mb = parsePositiveIntEnv('AWB_IMAGE_UPLOAD_MAX_MB');
+  return (mb ?? 10) * 1024 * 1024;
+}
+
+function imageUploadCacheDir(options = {}) {
+  return path.resolve(options.cacheDir ?? process.env.AWB_UPLOAD_CACHE_DIR ?? path.join(process.cwd(), '.awb', 'cache', 'assets'));
+}
+
+async function convertImageToWebp(inputPath, outputPath, quality) {
+  const sharp = (await import('sharp')).default;
+  await sharp(inputPath, { failOn: 'none' })
+    .rotate()
+    .webp({ quality, effort: 4 })
+    .toFile(outputPath);
+}
+
+export async function prepareLocalUploadFile(filePath, options = {}) {
+  const absolutePath = path.resolve(filePath);
+  const mimeType = guessMimeType(absolutePath);
+  if (!mimeType.startsWith('image/')) {
+    return {
+      filePath: absolutePath,
+      originalFilePath: absolutePath,
+      converted: false,
+      conversion: null,
+    };
+  }
+
+  const originalStat = await fs.stat(absolutePath);
+  const maxBytes = defaultImageUploadMaxBytes(options);
+  const needsWebp = mimeType !== 'image/webp';
+  const needsSizeReduction = maxBytes != null && originalStat.size > maxBytes;
+  if (!needsWebp && !needsSizeReduction) {
+    return {
+      filePath: absolutePath,
+      originalFilePath: absolutePath,
+      converted: false,
+      conversion: null,
+    };
+  }
+
+  const cacheDir = imageUploadCacheDir(options);
+  await fs.mkdir(cacheDir, { recursive: true });
+  const hash = crypto
+    .createHash('sha1')
+    .update(`${absolutePath}:${originalStat.mtimeMs}:${originalStat.size}`)
+    .digest('hex')
+    .slice(0, 12);
+  const baseName = path.basename(absolutePath, path.extname(absolutePath)).replace(/[^0-9A-Za-z._-]+/g, '-') || 'image';
+  const qualitySteps = [90, 82, 74, 66, 58, 50, 42, 34];
+  let best = null;
+  let lastError = null;
+
+  for (const quality of qualitySteps) {
+    const outputPath = path.join(cacheDir, `${baseName}-${hash}-q${quality}.webp`);
+    try {
+      const existing = await fs.stat(outputPath).catch(() => null);
+      if (!existing) {
+        await convertImageToWebp(absolutePath, outputPath, quality);
+      }
+      const stat = await fs.stat(outputPath);
+      best = { outputPath, stat, quality };
+      if (maxBytes == null || stat.size <= maxBytes) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!best) {
+    throw new Error(`图片自动转 webp 失败：${absolutePath}。${lastError instanceof Error ? lastError.message : String(lastError ?? '')}`);
+  }
+  if (maxBytes != null && best.stat.size > maxBytes) {
+    throw new Error(`图片自动转 webp 后仍超过 ${Math.round(maxBytes / 1024 / 1024)}MB：${best.outputPath} (${best.stat.size} bytes)。请换更小的参考图。`);
+  }
+
+  return {
+    filePath: best.outputPath,
+    originalFilePath: absolutePath,
+    converted: true,
+    conversion: {
+      from: absolutePath,
+      to: best.outputPath,
+      fromMimeType: mimeType,
+      toMimeType: 'image/webp',
+      originalSize: originalStat.size,
+      size: best.stat.size,
+      quality: best.quality,
+      maxBytes,
+    },
+  };
 }
 
 function parsePngSize(buffer) {
@@ -979,7 +1085,8 @@ export function sanitizeLoginResult(result) {
 export async function uploadLocalFile(filePath, options = {}) {
   const sceneType = options.sceneType ?? TASK_UPLOAD_SCENE.IMAGE_CREATE;
   const projectNo = options.projectNo ?? '';
-  const absolutePath = path.resolve(filePath);
+  const prepared = await prepareLocalUploadFile(filePath, options);
+  const absolutePath = prepared.filePath;
   const buffer = await fs.readFile(absolutePath);
   const imageMeta =
     guessMimeType(absolutePath).startsWith('image/')
@@ -1035,6 +1142,9 @@ export async function uploadLocalFile(filePath, options = {}) {
 
   return {
     filePath: absolutePath,
+    originalFilePath: prepared.originalFilePath,
+    converted: prepared.converted,
+    conversion: prepared.conversion,
     fileName: path.basename(absolutePath),
     sceneType,
     mimeType: imageMeta.mimeType,
