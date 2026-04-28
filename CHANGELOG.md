@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.22 - 2026-04-29
+
+- Add automatic local image WebP preparation before AWB uploads, including cached converted files and upload output metadata.
+- Add `model-duration-estimate` for model-group average duration and suggested wait windows from task execution statistics.
+- Tighten AWB skill docs so agents rely on live `model-options` / `--help`, avoid stale hardcoded model assumptions, and keep async task guidance concise.
+
 ## 0.1.21 - 2026-04-29
 
 - Add video duration summaries to `video-models` so agents can pick models by supported clip length before drilling into `model-options`.
