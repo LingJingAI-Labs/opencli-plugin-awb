@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.24 - 2026-04-29
+
+- Compact high-frequency CLI JSON outputs beyond task queries, including model lists, `model-options`, uploads, subject status, batch rows, task stats, and AiHubMix status.
+- Remove default raw payload mirrors, duplicate Chinese alias fields, and repeated signed URLs from agent-facing responses.
+
 ## 0.1.23 - 2026-04-29
 
 - Compact task creation, wait, list, and local task-record outputs by removing duplicated raw payloads and repeated signed URL fields.

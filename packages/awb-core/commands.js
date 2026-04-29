@@ -908,7 +908,6 @@ async function uploadSubjectAssets(kwargs) {
       assetPath,
       filePath: uploaded?.filePath ?? null,
       publicUrl: uploaded?.publicUrl ?? null,
-      raw: JSON.stringify(created.raw ?? {}),
     });
   }
 
@@ -916,10 +915,6 @@ async function uploadSubjectAssets(kwargs) {
     throw new Error('主体素材上传完成，但没有拿到 subjectId。请检查主参考图是否创建成功。');
   }
   result.nextRefSubject = `${name}=${result.subjectId}`;
-  result.raw = JSON.stringify({
-    group,
-    uploadedAssets: result.uploadedAssets,
-  });
   return result;
 }
 
@@ -1396,7 +1391,6 @@ function parseNamedResourceSpecs(value, options = {}) {
 function normalizeRows(list) {
   return list.map((item) => ({
     ...flattenRecord(item),
-    raw: JSON.stringify(item),
   }));
 }
 
@@ -1585,7 +1579,6 @@ function normalizeStatRow(row = {}) {
     successAvgSeconds: toSec(row.success_avg_ms),
     failAvgSeconds: toSec(row.fail_avg_ms),
     totalMaxSeconds: toSec(row.total_max_ms),
-    raw: JSON.stringify(row),
   };
 }
 
@@ -1628,19 +1621,7 @@ async function fetchTaskDurationStats(kwargs = {}) {
 }
 
 function presentTaskDurationStats(result) {
-  return withAliasesRows(result.rows, {
-    bucketStart: '统计时间',
-    bizType: '业务类型',
-    platformType: '平台',
-    modelUseType: '模型用途',
-    channel: '通道',
-    totalCount: '总数',
-    successCount: '成功数',
-    totalAvgSeconds: '平均耗时秒',
-    successAvgSeconds: '成功平均秒',
-    failAvgSeconds: '失败平均秒',
-    totalMaxSeconds: '最大耗时秒',
-  });
+  return result.rows;
 }
 
 function uniqueNonEmpty(values = []) {
@@ -1790,29 +1771,23 @@ async function estimateModelDuration(kwargs = {}) {
     modelName: model.modelName ?? modelDefinition?.modelName ?? null,
     kind,
     bizType,
-    inferredPlatformCandidates: platformCandidates,
-    inferredModelUseCandidates: modelUseCandidates,
     avgSeconds,
     successAvgSeconds: best?.successAvgSeconds ?? null,
     totalAvgSeconds: best?.totalAvgSeconds ?? null,
     suggestedWaitSeconds: suggestedWaitSeconds(kind, avgSeconds),
     confidence,
     matchedBy: best?._query ?? null,
-    stat: best ? Object.fromEntries(Object.entries(best).filter(([key]) => !key.startsWith('_'))) : null,
-    alternatives: candidates.slice(1, 6).map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith('_')))),
+    sample: best ? {
+      bucketStart: best.bucketStart ?? null,
+      totalCount: best.totalCount ?? null,
+      successCount: best.successCount ?? null,
+      successRate: best.successRate ?? null,
+    } : null,
   };
 }
 
 function presentModelDurationEstimate(result) {
-  return withAliases(result, {
-    modelName: '模型',
-    modelGroupCode: '模型组',
-    bizType: '业务类型',
-    avgSeconds: '预估平均秒',
-    suggestedWaitSeconds: '建议等待秒',
-    confidence: '置信度',
-    matchedBy: '匹配条件',
-  });
+  return result;
 }
 
 function resolveAssetEditAuthorization(kwargs = {}) {
@@ -1877,21 +1852,11 @@ function normalizeAssetEditTask(row = {}) {
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
     errorMessage: row.error_message ?? null,
-    raw: JSON.stringify(row),
   };
 }
 
 function presentAssetEditTask(row) {
-  return withAliasesRows([normalizeAssetEditTask(row)], {
-    taskId: '去字幕任务ID',
-    remoteTaskId: '远端任务ID',
-    status: '状态',
-    callbackStatus: '回调状态',
-    resultUrl: '结果链接',
-    expiresAt: '过期时间',
-    createdAt: '创建时间',
-    errorMessage: '错误',
-  });
+  return [normalizeAssetEditTask(row)];
 }
 
 async function createSeedanceSubtitleRemoveTask(kwargs = {}) {
@@ -1965,7 +1930,6 @@ function normalizePointPackageRows(list, source = 'api') {
     titleIcon: item?.titleIcon ?? null,
     packageType: item?.packageType ?? null,
     source,
-    raw: JSON.stringify(item),
   }));
 }
 
@@ -2031,7 +1995,6 @@ function normalizePointRecordRows(payload, source = 'api') {
     dataPlanPoint: payload?.dataPlanPoint ?? null,
     topUpPoint: payload?.topUpPoint ?? null,
     source,
-    raw: JSON.stringify(item),
   }));
 }
 
@@ -2133,7 +2096,6 @@ async function fetchPayStatus(rechargeNo) {
   return {
     rechargeNo: payload?.rechargeNo ?? rechargeNo,
     ...status,
-    raw: JSON.stringify(payload),
   };
 }
 
@@ -2623,10 +2585,6 @@ async function submitInvoiceForm(page, kwargs) {
     proofFileSize: fileInfo.size,
     proofFileToken: runtimeResult?.fileToken ?? null,
     formUrl: AWB_INVOICE_FORM_URL,
-    submitResult: JSON.stringify(runtimeResult?.submitResp ?? {}),
-    raw: JSON.stringify({
-      ...runtimeResult,
-    }),
   };
 }
 
@@ -2676,16 +2634,6 @@ function normalizeAihubmixVideoModelRows() {
       : item.modelCode === 'happyhorse-1.0-r2v'
         ? 'input.prompt,input.media,parameters.resolution,parameters.ratio,parameters.duration'
         : 'prompt,seconds,size,ratio,input_reference,extra_body',
-    模型: item.modelName,
-    提供方: 'AiHubMix',
-    帧模式: item.frameFeature,
-    参考模式: item.refFeature,
-    时长: item.modelCode === 'happyhorse-1.0-r2v' ? '3-15s' : '2-15s',
-    特色能力: '外部计费 | async',
-    通道: '外部',
-    模型组: item.modelGroupCode,
-    成功率: null,
-    raw: JSON.stringify(item),
   }));
 }
 
@@ -3578,12 +3526,7 @@ function normalizeModelOptionRows(payload, kind = 'generic', modelDefinition = n
         paramType: merged?.paramType ?? null,
         cliFlag: modelParamExample(kind, merged?.paramKey ?? '', values),
         allowedValues: values.join(', '),
-        底层参数: merged?.paramKey ?? null,
-        名称: displayName,
-        类型: merged?.paramType ?? null,
-        约束: summarizeModelOptionConstraint(merged),
-        推荐CLI用法: modelParamExample(kind, merged?.paramKey ?? '', values),
-        raw: JSON.stringify(merged),
+        constraint: summarizeModelOptionConstraint(merged),
       };
     })
     .sort((left, right) => toInt(left?.rank, 0) - toInt(right?.rank, 0));
@@ -3804,22 +3747,6 @@ function normalizeModelRows(payload) {
       feeCalcType: item?.feeCalcType ?? item?.feeType ?? null,
       displayScope: displayScopes.join(','),
       paramKeys: paramDefs.map((option) => option.paramKey).filter(Boolean).join(','),
-      模型: item?.modelName ?? item?.name ?? item?.label ?? null,
-      提供方: item?.provider ?? item?.vendor ?? item?.supplier ?? item?.componyName ?? null,
-      参考图: kind === 'image' ? imageRefFeature : null,
-      帧模式: kind === 'video' ? videoFrameFeature : null,
-      参考模式: kind === 'video' ? videoReferenceFeature : null,
-      时长: kind === 'video' ? durationFeature : null,
-      特色能力: extraFeatures,
-      通道:
-        modelGroupCode && /OFFICIAL/i.test(modelGroupCode) ? '官方'
-          : modelGroupCode && /DISCOUNT/i.test(modelGroupCode) ? '折扣'
-            : modelGroupCode && /LOW_PRICE|LOWPRICE/i.test(modelGroupCode) ? '低价'
-              : modelGroupCode && /FAST/i.test(modelGroupCode) ? '快速'
-                : '默认',
-      模型组: modelGroupCode,
-      成功率: formatSuccessRate(ext?.success_rate),
-      raw: JSON.stringify(sanitizeModelRawRecord(item)),
     };
   });
 }
@@ -3957,7 +3884,6 @@ function normalizeProjectGroupRecord(item, selectedProjectGroupNo) {
     projectGroupNo,
     projectGroupName: item?.projectGroupName ?? item?.name ?? null,
     isSelected: projectGroupNo === selectedProjectGroupNo,
-    raw: JSON.stringify(item),
   };
 }
 
@@ -3999,10 +3925,6 @@ async function fetchProjectGroupSummary(projectGroupNo) {
     personIntegralCurrent: pointInfo?.personIntegralCurrent ?? null,
     personIntegralMax: pointInfo?.personIntegralMax ?? null,
     teamIntegral: pointInfo?.teamIntegral ?? null,
-    raw: JSON.stringify({
-      projectGroup,
-      integral: pointInfo,
-    }),
   };
   await saveState({
     currentProjectGroupNo: summary.projectGroupNo,
@@ -4159,12 +4081,7 @@ function presentProjectGroupUserRows(rows) {
 }
 
 function presentPointSummary(summary) {
-  return withAliases(summary, {
-    teamPointBalance: '团队积分',
-    projectPointBalance: '项目组积分',
-    projectPointMax: '项目组上限',
-    currentProjectGroupName: '当前项目组',
-  });
+  return summary;
 }
 
 function presentPointPackageRows(rows) {
@@ -4302,33 +4219,32 @@ function buildUploadSubjectRegisterHint(item) {
 }
 
 function presentUploadRows(rows) {
-  return withAliasesRows(rows.map((item) => ({
-    ...item,
+  return rows.map((item) => ({
+    fileName: item?.fileName ?? null,
+    sceneType: item?.sceneType ?? null,
+    mimeType: item?.mimeType ?? null,
+    size: item?.size ?? null,
+    converted: item?.converted ?? null,
+    conversion: item?.conversion ?? null,
+    width: item?.width ?? null,
+    height: item?.height ?? null,
+    backendPath: item?.backendPath ?? null,
+    groupId: item?.groupId ?? null,
     reuseHint: buildUploadReuseHint(item),
     subjectRegisterHint: buildUploadSubjectRegisterHint(item),
-  })), {
-    fileName: '文件名',
-    sceneType: '上传场景',
-    converted: '自动转码',
-    backendPath: '素材路径',
-    groupId: '素材组ID',
-    reuseHint: '复用写法',
-    subjectRegisterHint: '主体注册写法',
-    width: '宽',
-    height: '高',
-  });
+  }));
 }
 
 function presentSubjectUploadResult(result) {
-  return withAliases(result, {
-    name: '主体名称',
-    groupId: '素材组ID',
-    groupName: '素材组名称',
-    publishLabel: '发布标识',
-    subjectId: '主体ID',
-    nextRefSubject: '引用写法',
-    reusedGroup: '复用素材组',
-  });
+  return {
+    name: result?.name ?? null,
+    groupId: result?.groupId ?? null,
+    groupName: result?.groupName ?? null,
+    publishLabel: result?.publishLabel ?? null,
+    subjectId: result?.subjectId ?? null,
+    nextRefSubject: result?.nextRefSubject ?? null,
+    reusedGroup: result?.reusedGroup ?? null,
+  };
 }
 
 function presentTaskRows(rows) {
@@ -4442,47 +4358,41 @@ function presentTaskCreateResult(result) {
 }
 
 function presentAihubmixVideoStatus(result) {
-  return withAliases(result, {
-    taskId: '任务ID',
-    taskStatus: '任务状态',
-    modelGroupCode: '模型组',
-    firstResultUrl: '下载接口',
-    outputFile: '输出文件',
-    timedOut: '是否超时',
-    errorMsg: '错误',
-  });
+  return {
+    taskId: result?.taskId ?? null,
+    taskStatus: result?.taskStatus ?? null,
+    modelGroupCode: result?.modelGroupCode ?? null,
+    firstResultUrl: result?.firstResultUrl ?? null,
+    outputFile: result?.outputFile ?? null,
+    timedOut: result?.timedOut ?? null,
+    errorMsg: result?.errorMsg ?? null,
+  };
 }
 
 function presentBatchCreateRows(rows) {
-  return withAliasesRows(
-    rows.map((item) => ({
-      ...item,
-      taskStatus: taskStatusLabel(item?.taskStatus),
-    })),
-    {
-      inputIndex: '序号',
-      pointCost: '预计积分',
-      projectPointBalance: '项目组余额',
-      projectPointRemainingAfter: '提交后项目组剩余',
-      taskId: '任务ID',
-      taskStatus: '任务状态',
-      projectGroupNo: '项目组编号',
-      error: '错误',
-    },
-  );
+  return rows.map((item) => ({
+    inputIndex: item?.inputIndex ?? null,
+    pointCost: item?.pointCost ?? null,
+    projectPointBalance: item?.projectPointBalance ?? null,
+    projectPointRemainingAfter: item?.projectPointRemainingAfter ?? null,
+    taskId: item?.taskId ?? null,
+    taskStatus: taskStatusLabel(item?.taskStatus),
+    projectGroupNo: item?.projectGroupNo ?? null,
+    error: item?.error ?? null,
+  }));
 }
 
 function presentSubjectBatchRows(rows) {
-  return withAliasesRows(rows, {
-    inputIndex: '序号',
-    name: '主体名称',
-    publishLabel: '发布标识',
-    subjectId: '主体ID',
-    nextRefSubject: '引用写法',
-    groupId: '素材组ID',
-    reusedGroup: '复用素材组',
-    error: '错误',
-  });
+  return rows.map((item) => ({
+    inputIndex: item?.inputIndex ?? null,
+    name: item?.name ?? null,
+    publishLabel: item?.publishLabel ?? null,
+    subjectId: item?.subjectId ?? null,
+    nextRefSubject: item?.nextRefSubject ?? null,
+    groupId: item?.groupId ?? null,
+    reusedGroup: item?.reusedGroup ?? null,
+    error: item?.error ?? null,
+  }));
 }
 
 function rewriteAwbErrorMessage(error, context = {}) {
@@ -5341,7 +5251,7 @@ async function resolveCreatedTaskFallback(options) {
 
 async function estimateImageFee(kwargs) {
   printRuntimeNote(['[AWB] 正在计算生图积分...']);
-  const { model, resolvedKwargs, promptParams, uploads } = await resolveImagePromptParams(kwargs);
+  const { model, resolvedKwargs, promptParams } = await resolveImagePromptParams(kwargs);
   const [payload, resolvedProjectGroupNo] = await Promise.all([
     apiFetch('/api/material/creation/imageCreateFeeCalc', {
       body: {
@@ -5362,7 +5272,6 @@ async function estimateImageFee(kwargs) {
     pointCost: pointEstimate.pointCost,
     ...(payload && typeof payload === 'object' ? flattenRecord(payload) : {}),
     ...pointEstimate,
-    uploadedRefs: JSON.stringify(uploads),
   };
 }
 
@@ -5492,7 +5401,6 @@ async function createImageTask(kwargs) {
     });
     const normalized = normalizeCreateResult(payload, {
       projectGroupNo,
-      uploadedRefs: JSON.stringify(uploads),
       ...pointEstimate,
     });
     if (normalized.taskId) {
@@ -5537,7 +5445,7 @@ async function estimateVideoFee(kwargs) {
     };
   }
   printRuntimeNote(['[AWB] 正在计算生视频积分...']);
-  const { model, resolvedKwargs, promptParams, taskPrompt, uploads } = await resolveVideoPromptParams(kwargs);
+  const { model, resolvedKwargs, promptParams, taskPrompt } = await resolveVideoPromptParams(kwargs);
   const [payload, resolvedProjectGroupNo] = await Promise.all([
     apiFetch('/api/material/creation/videoCreateFeeCalc', {
       body: {
@@ -5558,7 +5466,6 @@ async function estimateVideoFee(kwargs) {
     pointCost: pointEstimate.pointCost,
     ...(payload && typeof payload === 'object' ? flattenRecord(payload) : {}),
     ...pointEstimate,
-    uploadedFrames: JSON.stringify(uploads),
   };
 }
 
@@ -5604,7 +5511,6 @@ async function createVideoTask(kwargs) {
     });
     const normalized = normalizeCreateResult(payload, {
       projectGroupNo,
-      uploadedFrames: JSON.stringify(uploads),
       ...pointEstimate,
     });
     if (normalized.taskId) {
@@ -6114,7 +6020,6 @@ function normalizeAihubmixVideoStatus(payload = {}, extra = {}) {
     nextCommand: taskId ? `${runtimeCommandPrefix()} aihubmix-video-status --taskId ${taskId} --waitSeconds 300` : null,
     downloadCommand: taskId ? `${runtimeCommandPrefix()} aihubmix-video-download --taskId ${taskId} --outputFile ./output.mp4` : null,
     errorMsg: typeof error === 'string' ? error : error ? JSON.stringify(error) : null,
-    raw: JSON.stringify(payload),
     ...extra,
   };
 }
@@ -6160,7 +6065,6 @@ async function createAihubmixVideoTask(kwargs = {}) {
     pointCost: null,
     billingNote: 'AiHubMix 外部计费，不消耗 AWB/灵境积分',
     ...costEstimate,
-    request: JSON.stringify(request),
   });
   if (toInt(kwargs.waitSeconds, 0) > 0 && normalized.taskId) {
     return waitForAihubmixVideo({ ...kwargs, taskId: normalized.taskId });
@@ -6181,7 +6085,6 @@ async function previewAihubmixVideoCreate(kwargs = {}) {
     billingNote: 'AiHubMix 外部计费，不消耗 AWB/灵境积分',
     ...costEstimate,
     request,
-    raw: JSON.stringify({ request }),
   };
 }
 
@@ -7550,7 +7453,7 @@ cli({
   }),
   browser: false,
   args: [],
-  columns: ['团队积分', '项目组积分', '项目组上限', '当前项目组'],
+  columns: ['teamPointBalance', 'projectPointBalance', 'projectPointMax', 'currentProjectGroupName'],
   func: async () => {
     const payload = await apiFetch('/api/anime/member/benefits/queryGroupPoint', {
       body: {},
@@ -7563,10 +7466,6 @@ cli({
       projectPointMax: projectGroup?.projectGroupIntegralMax ?? null,
       currentProjectGroupNo: projectGroup?.projectGroupNo ?? null,
       currentProjectGroupName: projectGroup?.projectGroupName ?? null,
-      raw: JSON.stringify({
-        team: payload,
-        projectGroup,
-      }),
     });
   },
 });
@@ -7797,10 +7696,6 @@ cli({
       payStatus: status?.payStatus ?? 10,
       payStatusText: status?.payStatusText ?? '待支付',
       timedOut: status?.timedOut ?? false,
-      raw: JSON.stringify({
-        create: payload,
-        status,
-      }),
     });
   },
 });
@@ -7957,31 +7852,31 @@ cli({
     { name: 'modelGroupCode', help: '模型组编码。推荐优先传这个；它在平台里是唯一的' },
     { name: 'selectedConfigsJson', default: '{}', help: '可选：带上已选参数再查询剩余参数定义。示例: \'{"quality":"720","generated_mode":"multi_param"}\'' },
   ],
-  columns: ['底层参数', '名称', '类型', '约束', '推荐CLI用法'],
+  columns: ['paramKey', 'paramName', 'paramType', 'constraint', 'cliFlag'],
   func: async (_page, kwargs) => {
     ensureModelSelector('model-options', kwargs);
     const model = await resolveModelSelection('generic', kwargs);
     if (model.externalProvider === 'aihubmix') {
       const rows = model.modelCode === 'happyhorse-1.0-r2v'
         ? [
-            { paramKey: 'input.prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "character1 在雨夜奔跑"', allowedValues: '', 底层参数: 'input.prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填；最多 5000 个非中文字符或 2500 个中文字符；character1/character2 按 media 顺序指代参考图', 推荐CLI用法: '--prompt "character1 在雨夜奔跑"', raw: JSON.stringify({ required: true }) },
-            { paramKey: 'input.media', paramName: '参考图', paramType: 'UrlList', cliFlag: '--refImageUrls "character1=https://example.com/a.jpg"', allowedValues: '1-9 images; JPEG/JPG/PNG/WEBP; HTTP/HTTPS URL', 底层参数: 'input.media', 名称: '参考图', 类型: 'UrlList', 约束: '必填 1-9 张公网图片 URL；短边 >= 400px；单张 <= 10MB', 推荐CLI用法: '--refImageUrls "character1=https://example.com/a.jpg"', raw: JSON.stringify({ provider: 'aihubmix' }) },
-            { paramKey: 'parameters.resolution', paramName: '分辨率档位', paramType: 'EnumType', cliFlag: '--quality 1080P', allowedValues: '1080P, 720P', 底层参数: 'parameters.resolution', 名称: '分辨率档位', 类型: 'EnumType', 约束: '默认 1080P', 推荐CLI用法: '--quality 1080P', raw: JSON.stringify({ provider: 'aihubmix' }) },
-            { paramKey: 'parameters.ratio', paramName: '视频比例', paramType: 'EnumType', cliFlag: '--ratio 16:9', allowedValues: '16:9, 9:16, 3:4, 4:3, 1:1', 底层参数: 'parameters.ratio', 名称: '视频比例', 类型: 'EnumType', 约束: '默认 16:9', 推荐CLI用法: '--ratio 16:9', raw: JSON.stringify({ provider: 'aihubmix' }) },
-            { paramKey: 'parameters.duration', paramName: '时长', paramType: 'Integer', cliFlag: '--generatedTime 5', allowedValues: '3-15', 底层参数: 'parameters.duration', 名称: '时长', 类型: 'Integer', 约束: '单位秒；整数 3-15；默认 5', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'input.prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "character1 在雨夜奔跑"', allowedValues: '', constraint: '必填；最多 5000 个非中文字符或 2500 个中文字符；character1/character2 按 media 顺序指代参考图' },
+            { paramKey: 'input.media', paramName: '参考图', paramType: 'UrlList', cliFlag: '--refImageUrls "character1=https://example.com/a.jpg"', allowedValues: '1-9 images; JPEG/JPG/PNG/WEBP; HTTP/HTTPS URL', constraint: '必填 1-9 张公网图片 URL；短边 >= 400px；单张 <= 10MB' },
+            { paramKey: 'parameters.resolution', paramName: '分辨率档位', paramType: 'EnumType', cliFlag: '--quality 1080P', allowedValues: '1080P, 720P', constraint: '默认 1080P' },
+            { paramKey: 'parameters.ratio', paramName: '视频比例', paramType: 'EnumType', cliFlag: '--ratio 16:9', allowedValues: '16:9, 9:16, 3:4, 4:3, 1:1', constraint: '默认 16:9' },
+            { paramKey: 'parameters.duration', paramName: '时长', paramType: 'Integer', cliFlag: '--generatedTime 5', allowedValues: '3-15', constraint: '单位秒；整数 3-15；默认 5' },
           ]
         : model.modelCode === 'happyhorse-1.0-i2v'
           ? [
-              { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "保持原图主体，轻微运镜"', allowedValues: '', 底层参数: 'prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填', 推荐CLI用法: '--prompt "保持原图主体，轻微运镜"', raw: JSON.stringify({ required: true }) },
-              { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '2-15', 底层参数: 'seconds', 名称: '时长', 类型: 'EnumType', 约束: '单位秒；2-15；默认 5', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
-              { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./frame.webp', allowedValues: 'jpeg, jpg, png, bmp, webp', 底层参数: 'input_reference', 名称: '首帧/图片参考', 类型: 'UrlOrBase64', 约束: '必填；输出视频比例跟随原图；不要传 --ratio / --size / --quality', 推荐CLI用法: '--frameFile ./frame.webp', raw: JSON.stringify({ provider: 'aihubmix' }) },
+              { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "保持原图主体，轻微运镜"', allowedValues: '', constraint: '必填' },
+              { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '2-15', constraint: '单位秒；2-15；默认 5' },
+              { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./frame.webp', allowedValues: 'jpeg, jpg, png, bmp, webp', constraint: '必填；输出视频比例跟随原图；不要传 --ratio / --size / --quality' },
             ]
         : [
-            { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "..."', allowedValues: '', 底层参数: 'prompt', 名称: '提示词', 类型: 'Prompt', 约束: '必填', 推荐CLI用法: '--prompt "..."', raw: JSON.stringify({ required: true }) },
-            { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '2-15', 底层参数: 'seconds', 名称: '时长', 类型: 'EnumType', 约束: '传给 AiHubMix 的 seconds', 推荐CLI用法: '--generatedTime 5', raw: JSON.stringify({ provider: 'aihubmix' }) },
-            { paramKey: 'size', paramName: '分辨率', paramType: 'EnumType', cliFlag: '--size 1280x720', allowedValues: '1280x720, 720x1280, 960x960, 960x720, 720x960', 底层参数: 'size', 名称: '分辨率', 类型: 'EnumType', 约束: '默认按 ratio 映射；可直接传 --size', 推荐CLI用法: '--size 1280x720', raw: JSON.stringify({ provider: 'aihubmix' }) },
-            { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./a.webp', allowedValues: '', 底层参数: 'input_reference', 名称: '首帧/图片参考', 类型: 'UrlOrBase64', 约束: model.modelCode.endsWith('-i2v') ? '图生视频必填；视频比例跟随原图' : '按模型需要', 推荐CLI用法: '--frameUrl <url> / --frameFile ./a.webp', raw: JSON.stringify({ provider: 'aihubmix' }) },
-            { paramKey: 'extra_body.content', paramName: '多模态参考', paramType: 'ReferenceList', cliFlag: '--refVideoUrls <url>', allowedValues: 'video_url', 底层参数: 'extra_body.content', 名称: '多模态参考', 类型: 'ReferenceList', 约束: 'video-edit 使用；本地文件会转 data URL', 推荐CLI用法: '--refVideoUrls <url>', raw: JSON.stringify({ provider: 'aihubmix' }) },
+            { paramKey: 'prompt', paramName: '提示词', paramType: 'Prompt', cliFlag: '--prompt "..."', allowedValues: '', constraint: '必填' },
+            { paramKey: 'seconds', paramName: '时长', paramType: 'EnumType', cliFlag: '--generatedTime 5', allowedValues: '2-15', constraint: '传给 AiHubMix 的 seconds' },
+            { paramKey: 'size', paramName: '分辨率', paramType: 'EnumType', cliFlag: '--size 1280x720', allowedValues: '1280x720, 720x1280, 960x960, 960x720, 720x960', constraint: '默认按 ratio 映射；可直接传 --size' },
+            { paramKey: 'input_reference', paramName: '首帧/图片参考', paramType: 'UrlOrBase64', cliFlag: '--frameUrl <url> / --frameFile ./a.webp', allowedValues: '', constraint: model.modelCode.endsWith('-i2v') ? '图生视频必填；视频比例跟随原图' : '按模型需要' },
+            { paramKey: 'extra_body.content', paramName: '多模态参考', paramType: 'ReferenceList', cliFlag: '--refVideoUrls <url>', allowedValues: 'video_url', constraint: 'video-edit 使用；本地文件会转 data URL' },
           ];
       printModelOptionSummary(model, null, rows, 'video');
       return rows;
@@ -8019,14 +7914,7 @@ cli({
     { name: 'provider', help: '按提供方过滤。示例: Google / 字节跳动' },
     { name: 'taskPrompt', default: '' },
   ],
-  columns: [
-    '模型',
-    '提供方',
-    '参考图',
-    '通道',
-    '模型组',
-    '成功率',
-  ],
+  columns: ['modelName', 'provider', 'refFeature', 'groupHint', 'modelGroupCode', 'successRatePct'],
   func: async (_page, kwargs) => {
     const viewerPermission = await resolveViewerPermission(kwargs);
     const source = kwargs.source || 'usage';
@@ -8063,17 +7951,7 @@ cli({
     { name: 'provider', help: '按提供方过滤。示例: Google / 字节跳动' },
     { name: 'taskPrompt', default: '' },
   ],
-  columns: [
-    '模型',
-    '提供方',
-    '帧模式',
-    '参考模式',
-    '时长',
-    '特色能力',
-    '通道',
-    '模型组',
-    '成功率',
-  ],
+  columns: ['modelName', 'provider', 'frameFeature', 'refFeature', 'durationFeature', 'extraFeatures', 'groupHint', 'modelGroupCode', 'successRatePct'],
   func: async (_page, kwargs) => {
     const viewerPermission = await resolveViewerPermission(kwargs);
     const source = kwargs.source || 'usage';
@@ -8121,7 +7999,7 @@ cli({
     },
     DRY_RUN_ARG,
   ],
-  columns: ['文件名', '上传场景', '自动转码', '素材路径', '素材组ID', '复用写法', '主体注册写法', '宽', '高'],
+  columns: ['fileName', 'sceneType', 'converted', 'backendPath', 'groupId', 'reuseHint', 'subjectRegisterHint', 'width', 'height'],
   func: async (_page, kwargs) => {
     const sceneType = kwargs.sceneType || TASK_UPLOAD_SCENE.IMAGE_CREATE;
     const allowedSceneTypes = [...new Set(Object.values(TASK_UPLOAD_SCENE))];
@@ -8145,11 +8023,7 @@ cli({
       width: item.width,
       height: item.height,
       backendPath: item.backendPath,
-      signedUrl: item.signedUrl,
-      publicUrl: item.publicUrl,
-      objectName: item.objectName,
       groupId: item.groupId,
-      raw: JSON.stringify(item),
     })));
   },
 });
@@ -8202,7 +8076,7 @@ cli({
   }),
   browser: false,
   args: SUBJECT_UPLOAD_ARGS,
-  columns: ['主体名称', '素材组ID', '素材组名称', '主体ID', '引用写法', '复用素材组'],
+  columns: ['name', 'groupId', 'groupName', 'subjectId', 'nextRefSubject', 'reusedGroup'],
   func: async (_page, kwargs) => runSubjectUploadCommand({ ...kwargs, defaultSafePublishNaming: false }),
 });
 
@@ -8225,7 +8099,7 @@ cli({
   }),
   browser: false,
   args: SUBJECT_UPLOAD_ARGS,
-  columns: ['主体名称', '素材组ID', '素材组名称', '主体ID', '引用写法', '复用素材组'],
+  columns: ['name', 'groupId', 'groupName', 'subjectId', 'nextRefSubject', 'reusedGroup'],
   func: async (_page, kwargs) => runSubjectUploadCommand({ ...kwargs, defaultSafePublishNaming: true }),
 });
 
@@ -8249,7 +8123,7 @@ cli({
     { name: 'platform', help: '默认平台字段；只在单条未提供时补上' },
     DRY_RUN_ARG,
   ],
-  columns: ['序号', '主体名称', '主体ID', '引用写法', '素材组ID', '复用素材组', '错误'],
+  columns: ['inputIndex', 'name', 'subjectId', 'nextRefSubject', 'groupId', 'reusedGroup', 'error'],
   func: async (_page, kwargs) => {
     await assertInternalViewer(kwargs);
     const items = await loadBatchItems(kwargs.inputFile, 'subject');
@@ -8277,7 +8151,6 @@ cli({
         publishLabel: result.publishLabel ?? null,
         reusedGroup: result.reusedGroup ?? null,
         error: null,
-        raw: JSON.stringify({ input: item, result }),
       };
     });
     return presentSubjectBatchRows(rows);
@@ -8316,23 +8189,23 @@ async function resolveSubjectGroupTarget(kwargs = {}) {
 }
 
 function presentSubjectStatus(result) {
-  return withAliases(result, {
-    groupId: '素材组ID',
-    groupName: '素材组名称',
-    description: '素材组描述',
-    projectName: '项目名',
-    platform: '平台',
-    usage: '用途',
-    groupSource: '来源',
-    createTime: '创建时间',
-    updateTime: '更新时间',
-    publishLabel: '发布标识',
-    publishState: '发布状态',
-    publishedAssetCount: '已发布资产数',
-    subjectId: '主体ID',
-    nextRefSubject: '引用写法',
-    publishedAssetNames: '已发布资产',
-  });
+  return {
+    groupId: result?.groupId ?? null,
+    groupName: result?.groupName ?? null,
+    description: result?.description ?? null,
+    projectName: result?.projectName ?? null,
+    platform: result?.platform ?? null,
+    usage: result?.usage ?? null,
+    groupSource: result?.groupSource ?? null,
+    createTime: result?.createTime ?? null,
+    updateTime: result?.updateTime ?? null,
+    publishLabel: result?.publishLabel ?? null,
+    publishState: result?.publishState ?? null,
+    publishedAssetCount: result?.publishedAssetCount ?? null,
+    subjectId: result?.subjectId ?? null,
+    nextRefSubject: result?.nextRefSubject ?? null,
+    publishedAssetNames: result?.publishedAssetNames ?? null,
+  };
 }
 
 async function listThirdAssets(filters = {}) {
@@ -8368,7 +8241,7 @@ cli({
     { name: 'safePublishNaming', help: '推导组名时是否按安全代码名规则计算。示例: true / false。' },
     { name: 'subjectId', help: '可选：当前已拿到的主体ID。若传入，CLI 会顺带拼出引用写法。' },
   ],
-  columns: ['素材组ID', '素材组名称', '素材组描述', '项目名', '平台', '用途', '来源', '创建时间', '更新时间', '发布标识', '发布状态', '已发布资产数', '主体ID', '引用写法'],
+  columns: ['groupId', 'groupName', 'description', 'projectName', 'platform', 'usage', 'groupSource', 'createTime', 'updateTime', 'publishLabel', 'publishState', 'publishedAssetCount', 'subjectId', 'nextRefSubject'],
   func: async (_page, kwargs) => {
     const target = await resolveSubjectGroupTarget(kwargs);
     const detail = target.detail ?? {};
@@ -8393,7 +8266,6 @@ cli({
       subjectId,
       nextRefSubject: aliasName && subjectId ? `${aliasName}=${subjectId}` : null,
       publishedAssetNames: thirdAssets.map((item) => item?.assetName).filter(Boolean).join(' | ') || null,
-      raw: JSON.stringify({ group: detail, thirdAssets }),
     });
   },
 });
@@ -8416,7 +8288,7 @@ cli({
     { name: 'description', help: '新的素材组描述；建议用中性描述。' },
     DRY_RUN_ARG,
   ],
-  columns: ['素材组ID', '素材组名称', '素材组描述', '更新时间'],
+  columns: ['groupId', 'groupName', 'description', 'updateTime'],
   func: async (_page, kwargs) => {
     if (!trimToNull(kwargs.groupName) && !trimToNull(kwargs.description)) {
       throw new Error('至少提供 `--groupName` 或 `--description` 之一。');
@@ -8427,7 +8299,6 @@ cli({
         groupName: trimToNull(kwargs.groupName) ?? null,
         description: trimToNull(kwargs.description) ?? null,
         updateTime: null,
-        raw: JSON.stringify({ dryRun: true, request: { groupId: kwargs.groupId, name: trimToNull(kwargs.groupName) ?? null, description: trimToNull(kwargs.description) ?? null } }),
       });
     }
     await apiFetch(`/api/material/asset-groups/${kwargs.groupId}`, {
@@ -8448,7 +8319,6 @@ cli({
       groupSource: detail?.groupSource ?? null,
       createTime: detail?.createTime ?? null,
       updateTime: detail?.updateTime ?? null,
-      raw: JSON.stringify(detail),
     });
   },
 });
@@ -8587,7 +8457,7 @@ cli({
     { name: 'orderBy', default: 'total_avg_ms', help: '排序字段。示例: total_avg_ms / success_avg_ms / total_cnt' },
     { name: 'orderDir', default: 'desc', choices: ['asc', 'desc'] },
   ],
-  columns: ['统计时间', '业务类型', '平台', '模型用途', '通道', '总数', '成功数', '平均耗时秒', '成功平均秒', '失败平均秒', '最大耗时秒'],
+  columns: ['bucketStart', 'bizType', 'platformType', 'modelUseType', 'channel', 'totalCount', 'successCount', 'totalAvgSeconds', 'successAvgSeconds', 'failAvgSeconds', 'totalMaxSeconds'],
   func: async (_page, kwargs) => presentTaskDurationStats(await fetchTaskDurationStats(kwargs)),
 });
 
@@ -8614,7 +8484,7 @@ cli({
     { name: 'channel', help: '手动指定看板通道名' },
     { name: 'pageSize', type: 'int', default: 20 },
   ],
-  columns: ['模型', '模型组', '业务类型', '预估平均秒', '建议等待秒', '置信度', '匹配条件'],
+  columns: ['modelName', 'modelGroupCode', 'bizType', 'avgSeconds', 'suggestedWaitSeconds', 'confidence', 'matchedBy'],
   func: async (_page, kwargs) => presentModelDurationEstimate(await estimateModelDuration(kwargs)),
 });
 
@@ -8641,7 +8511,7 @@ cli({
     { name: 'pollIntervalMs', type: 'int', default: 5000 },
     { name: 'force', help: '跳过 URL/24小时本地保护。示例: --force true' },
   ],
-  columns: ['去字幕任务ID', '远端任务ID', '状态', '回调状态', '结果链接', '过期时间', '创建时间', '错误'],
+  columns: ['taskId', 'remoteTaskId', 'status', 'callbackStatus', 'resultUrl', 'expiresAt', 'createdAt', 'errorMessage'],
   func: async (_page, kwargs) => {
     const created = await createSeedanceSubtitleRemoveTask(kwargs);
     const taskId = created?.public_id ?? created?.id;
@@ -8669,7 +8539,7 @@ cli({
     { name: 'waitSeconds', type: 'int', default: 0 },
     { name: 'pollIntervalMs', type: 'int', default: 5000 },
   ],
-  columns: ['去字幕任务ID', '远端任务ID', '状态', '回调状态', '结果链接', '过期时间', '创建时间', '错误'],
+  columns: ['taskId', 'remoteTaskId', 'status', 'callbackStatus', 'resultUrl', 'expiresAt', 'createdAt', 'errorMessage'],
   func: async (_page, kwargs) => presentAssetEditTask(await waitForAssetEditTask(kwargs)),
 });
 
@@ -8690,7 +8560,7 @@ cli({
     { name: 'pollIntervalMs', type: 'int', default: 5000 },
     { name: 'aihubmixApiKey', help: 'API Key；默认读 AIHUBMIX_API_KEY / AIHUBMIX_KEY / AIHUBMIX_TOKEN' },
   ],
-  columns: ['任务ID', '任务状态', '模型组', '下载接口', '是否超时', '错误'],
+  columns: ['taskId', 'taskStatus', 'modelGroupCode', 'firstResultUrl', 'timedOut', 'errorMsg'],
   func: async (_page, kwargs) => presentAihubmixVideoStatus(await waitForAihubmixVideo(kwargs)),
 });
 
@@ -8709,7 +8579,7 @@ cli({
     { name: 'outputFile', default: 'output.mp4', help: '输出 mp4 文件路径' },
     { name: 'aihubmixApiKey', help: 'API Key；默认读 AIHUBMIX_API_KEY / AIHUBMIX_KEY / AIHUBMIX_TOKEN' },
   ],
-  columns: ['任务ID', '输出文件', '大小'],
+  columns: ['taskId', 'outputFile', 'size'],
   func: async (_page, kwargs) => withAliases(await downloadAihubmixVideo(kwargs), {
     taskId: '任务ID',
     outputFile: '输出文件',
@@ -8862,7 +8732,7 @@ cli({
     TASK_RECORD_FILE_ARG,
     DRY_RUN_ARG,
   ],
-  columns: ['序号', '预计积分', '项目组余额', '提交后项目组剩余', '任务ID', '任务状态', '项目组编号', '错误'],
+  columns: ['inputIndex', 'pointCost', 'projectPointBalance', 'projectPointRemainingAfter', 'taskId', 'taskStatus', 'projectGroupNo', 'error'],
   func: async (_page, kwargs) => {
     const items = await loadBatchItems(kwargs.inputFile, 'image');
     if (toBool(kwargs.dryRun)) {
@@ -8906,7 +8776,6 @@ cli({
         taskStatus: row?.taskStatus ?? null,
         projectGroupNo: row?.projectGroupNo ?? row?.currentProjectGroupNo ?? null,
         error: row?.error ?? null,
-        raw: JSON.stringify(row),
       })));
     }
     return presentBatchCreateRows(await runConcurrent(items, kwargs.concurrency, async (item, index) => {
@@ -8942,10 +8811,6 @@ cli({
         taskStatus: result.taskStatus ?? null,
         projectGroupNo: result.projectGroupNo ?? null,
         error: null,
-        raw: JSON.stringify({
-          input: item,
-          result,
-        }),
       };
     }));
   },
@@ -9177,7 +9042,7 @@ cli({
     TASK_RECORD_FILE_ARG,
     DRY_RUN_ARG,
   ],
-  columns: ['序号', '预计积分', '项目组余额', '提交后项目组剩余', '任务ID', '任务状态', '项目组编号', '错误'],
+  columns: ['inputIndex', 'pointCost', 'projectPointBalance', 'projectPointRemainingAfter', 'taskId', 'taskStatus', 'projectGroupNo', 'error'],
   func: async (_page, kwargs) => {
     const items = await loadBatchItems(kwargs.inputFile, 'video');
     if (toBool(kwargs.dryRun)) {
@@ -9209,7 +9074,6 @@ cli({
         taskStatus: row?.taskStatus ?? null,
         projectGroupNo: row?.projectGroupNo ?? row?.currentProjectGroupNo ?? null,
         error: row?.error ?? null,
-        raw: JSON.stringify(row),
       })));
     }
     return presentBatchCreateRows(await runConcurrent(items, kwargs.concurrency, async (item, index) => {
@@ -9245,10 +9109,6 @@ cli({
         taskStatus: result.taskStatus ?? null,
         projectGroupNo: result.projectGroupNo ?? null,
         error: null,
-        raw: JSON.stringify({
-          input: item,
-          result,
-        }),
       };
     }));
   },
