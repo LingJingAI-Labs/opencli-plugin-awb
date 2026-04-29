@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.23 - 2026-04-29
+
+- Compact task creation, wait, list, and local task-record outputs by removing duplicated raw payloads and repeated signed URL fields.
+- Prefer display result URLs, return `resultUrls` only for multi-result tasks, and keep single-result task responses to `firstResultUrl`.
+
 ## 0.1.22 - 2026-04-29
 
 - Add automatic local image WebP preparation before AWB uploads, including cached converted files and upload output metadata.

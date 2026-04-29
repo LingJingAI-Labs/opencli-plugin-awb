@@ -3915,6 +3915,7 @@ function normalizeTaskRows(payload) {
   return list.map((item) => {
     const resultFileList = Array.isArray(item?.resultFileList) ? item.resultFileList : [];
     const resultFileDisplayList = Array.isArray(item?.resultFileDisplayList) ? item.resultFileDisplayList : [];
+    const resultUrls = uniqueNonEmpty(resultFileDisplayList.length ? resultFileDisplayList : resultFileList);
     const createdAt =
       item?.gmtCreate ??
       item?.createTime ??
@@ -3941,13 +3942,11 @@ function normalizeTaskRows(payload) {
       gmtCreate: createdAt,
       gmtModified: modifiedAt,
       taskPrompt: item?.taskPrompt ?? null,
-      resultCount: Math.max(resultFileList.length, resultFileDisplayList.length),
-      firstResultUrl: resultFileDisplayList[0] ?? resultFileList[0] ?? null,
-      resultFileList: JSON.stringify(resultFileList),
-      resultFileDisplayList: JSON.stringify(resultFileDisplayList),
+      resultCount: resultUrls.length,
+      firstResultUrl: resultUrls[0] ?? null,
+      resultUrls: resultUrls.length > 1 ? resultUrls : undefined,
       errorMsg: item?.errorMsg ?? item?.resultMsg ?? null,
       isTerminal: TERMINAL_TASK_STATES.has(String(taskStatus ?? '').trim().toUpperCase()),
-      raw: JSON.stringify(item),
     };
   });
 }
@@ -4333,40 +4332,70 @@ function presentSubjectUploadResult(result) {
 }
 
 function presentTaskRows(rows) {
-  return withAliasesRows(
-    rows.map((item) => ({
-      ...item,
-      taskType: taskTypeLabel(item?.taskType),
-      taskStatus: taskStatusLabel(item?.taskStatus),
-      gmtCreateText: formatDateTime(item?.gmtCreate) ?? item?.gmtCreate ?? null,
-    })),
-    {
-      taskId: '任务ID',
-      taskType: '任务类型',
-      taskStatus: '任务状态',
-      modelName: '模型',
-      pointNo: '积分',
-      gmtCreateText: '创建时间',
-    },
-  );
+  return rows.map((item) => ({
+    taskId: item?.taskId ?? null,
+    taskType: taskTypeLabel(item?.taskType),
+    taskStatus: taskStatusLabel(item?.taskStatus),
+    modelName: item?.modelName ?? null,
+    modelGroupCode: item?.modelGroupCode ?? null,
+    pointNo: item?.pointNo ?? null,
+    gmtCreate: item?.gmtCreate ?? null,
+    gmtCreateText: formatDateTime(item?.gmtCreate) ?? item?.gmtCreate ?? null,
+    taskPrompt: item?.taskPrompt ?? null,
+    resultCount: item?.resultCount ?? null,
+    firstResultUrl: item?.firstResultUrl ?? null,
+    errorMsg: item?.errorMsg ?? null,
+    isTerminal: item?.isTerminal ?? null,
+  }));
 }
 
 function presentTaskWaitResult(result) {
-  return withAliases(
-    {
-      ...result,
-      taskStatus: taskStatusLabel(result?.taskStatus),
-      waitedSeconds: result?.waitedMs != null ? Math.round(Number(result.waitedMs) / 1000) : null,
-    },
-    {
-      taskId: '任务ID',
-      taskStatus: '任务状态',
-      modelName: '模型',
-      firstResultUrl: '首个结果',
-      waitedSeconds: '等待秒数',
-      timedOut: '是否超时',
-    },
-  );
+  const resultUrls = Array.isArray(result?.resultUrls)
+    ? result.resultUrls
+    : uniqueNonEmpty(
+      Array.isArray(result?.resultFileDisplayList) && result.resultFileDisplayList.length
+        ? result.resultFileDisplayList
+        : [
+          ...(Array.isArray(result?.resultFileList) ? result.resultFileList : []),
+          result?.firstResultUrl,
+        ],
+    );
+  const compact = {
+    taskId: result?.taskId ?? null,
+    taskType: result?.taskType ?? null,
+    taskStatus: taskStatusLabel(result?.taskStatus),
+    modelName: result?.modelName ?? null,
+    modelGroupCode: result?.modelGroupCode ?? null,
+    pointNo: result?.pointNo ?? null,
+    gmtCreate: result?.gmtCreate ?? null,
+    gmtModified: result?.gmtModified ?? null,
+    taskPrompt: result?.taskPrompt ?? null,
+    resultCount: result?.resultCount ?? resultUrls.length,
+    firstResultUrl: result?.firstResultUrl ?? resultUrls[0] ?? null,
+    resultUrls: resultUrls.length > 1 ? resultUrls : undefined,
+    errorMsg: result?.errorMsg ?? null,
+    isTerminal: result?.isTerminal ?? null,
+    waitedSeconds: result?.waitedMs != null ? Math.round(Number(result.waitedMs) / 1000) : null,
+    timedOut: result?.timedOut ?? null,
+  };
+  return compact;
+}
+
+function presentTaskRecordRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((record) => ({
+    taskId: record?.taskId ?? null,
+    taskType: taskTypeLabel(record?.taskType),
+    taskStatus: taskStatusLabel(record?.taskStatus),
+    modelName: record?.modelName ?? null,
+    modelGroupCode: record?.modelGroupCode ?? null,
+    projectGroupNo: record?.projectGroupNo ?? null,
+    firstResultUrl: record?.firstResultUrl ?? null,
+    resultCount: record?.resultCount ?? null,
+    timedOut: record?.timedOut ?? null,
+    recordedAt: record?.recordedAt ?? null,
+    event: record?.event ?? null,
+    errorMsg: record?.errorMsg ?? null,
+  }));
 }
 
 function presentPointEstimate(result) {
@@ -4380,16 +4409,36 @@ function presentPointEstimate(result) {
 }
 
 function presentTaskCreateResult(result) {
-  return withAliases(result, {
+  const resultUrls = Array.isArray(result?.resultUrls)
+    ? result.resultUrls
+    : uniqueNonEmpty(
+      Array.isArray(result?.resultFileDisplayList) && result.resultFileDisplayList.length
+        ? result.resultFileDisplayList
+        : [
+          ...(Array.isArray(result?.resultFileList) ? result.resultFileList : []),
+          result?.firstResultUrl,
+        ],
+    );
+  const compact = {
+    taskId: result?.taskId ?? null,
+    taskType: result?.taskType ?? null,
     taskStatus: taskStatusLabel(result?.taskStatus),
-    taskId: '任务ID',
-    taskStatus: '任务状态',
-    pointCost: '预计积分',
-    projectPointBalance: '项目组余额',
-    projectPointRemainingAfter: '提交后项目组剩余',
-    projectGroupNo: '项目组编号',
-    firstResultUrl: '首个结果',
-  });
+    modelName: result?.modelName ?? null,
+    modelGroupCode: result?.modelGroupCode ?? null,
+    pointCost: result?.pointCost ?? result?.pointNo ?? null,
+    projectPointBalance: result?.projectPointBalance ?? null,
+    projectPointRemainingAfter: result?.projectPointRemainingAfter ?? null,
+    teamPointBalance: result?.teamPointBalance ?? null,
+    teamPointRemainingAfter: result?.teamPointRemainingAfter ?? null,
+    projectGroupNo: result?.projectGroupNo ?? null,
+    firstResultUrl: result?.firstResultUrl ?? resultUrls[0] ?? null,
+    resultCount: result?.resultCount ?? (resultUrls.length || null),
+    resultUrls: resultUrls.length > 1 ? resultUrls : undefined,
+    submitted: result?.submitted ?? null,
+    timedOut: result?.timedOut ?? null,
+    nextCommand: result?.nextCommand ?? null,
+  };
+  return compact;
 }
 
 function presentAihubmixVideoStatus(result) {
@@ -5225,7 +5274,6 @@ function normalizeCreateResult(payload, extra = {}) {
   return {
     ...extra,
     ...flattenRecord(payload),
-    raw: JSON.stringify(payload),
   };
 }
 
@@ -8418,7 +8466,7 @@ cli({
     { name: 'pageSize', type: 'int', default: 20 },
     { name: 'minTime', help: 'Unix 毫秒时间戳上界；不传默认当前时间' },
   ],
-  columns: ['任务ID', '任务类型', '任务状态', '模型', '积分', '创建时间'],
+  columns: ['taskId', 'taskType', 'taskStatus', 'modelName', 'pointNo', 'gmtCreateText'],
   func: async (_page, kwargs) => presentTaskRows(await fetchTaskFeed(kwargs)),
 });
 
@@ -8434,7 +8482,7 @@ cli({
       'opencli awb task-wait --taskId <id> --taskType IMAGE_CREATE',
       'opencli awb task-wait --taskId <id> --taskType VIDEO_GROUP -f json',
     ],
-    hint: '任务完成后会直接返回 `firstResultUrl`、`resultFileList`、`resultFileDisplayList`，适合继续用 shell 或 agent 消费。',
+    hint: '任务完成后默认返回精简字段：`firstResultUrl`、`resultUrls`、`resultCount`，避免重复 raw / 长 URL 占用上下文。',
   }),
   browser: false,
   args: [
@@ -8446,7 +8494,7 @@ cli({
     { name: 'pollIntervalMs', type: 'int', default: 5000 },
     TASK_RECORD_FILE_ARG,
   ],
-  columns: ['任务ID', '任务状态', '模型', '首个结果', '等待秒数', '是否超时'],
+  columns: ['taskId', 'taskStatus', 'modelName', 'firstResultUrl', 'waitedSeconds', 'timedOut'],
   func: async (_page, kwargs) => {
     const result = await waitForTask(kwargs);
     await appendTaskRecord(kwargs, {
@@ -8485,23 +8533,8 @@ cli({
     { name: 'pendingOnly', help: '只看本地台账里尚未记录完成结果的任务。示例: true' },
     { name: 'limit', type: 'int', default: 100 },
   ],
-  columns: ['任务ID', '任务类型', '任务状态', '模型', '项目组编号', '首个结果', '记录时间', '事件'],
-  func: async (_page, kwargs) => withAliasesRows(
-    (await loadTaskRecordRows(kwargs)).map((record) => ({
-      ...record,
-      taskStatus: taskStatusLabel(record.taskStatus),
-    })),
-    {
-      taskId: '任务ID',
-      taskType: '任务类型',
-      taskStatus: '任务状态',
-      modelName: '模型',
-      projectGroupNo: '项目组编号',
-      firstResultUrl: '首个结果',
-      recordedAt: '记录时间',
-      event: '事件',
-    },
-  ),
+  columns: ['taskId', 'taskType', 'taskStatus', 'modelName', 'projectGroupNo', 'firstResultUrl', 'recordedAt', 'event'],
+  func: async (_page, kwargs) => presentTaskRecordRows(await loadTaskRecordRows(kwargs)),
 });
 
 cli({
@@ -8524,23 +8557,8 @@ cli({
     { name: 'waitSeconds', type: 'int', default: 0, help: '持续轮询秒数。0=只查一轮' },
     { name: 'pollIntervalMs', type: 'int', default: 5000 },
   ],
-  columns: ['任务ID', '任务类型', '任务状态', '模型', '项目组编号', '首个结果', '是否超时', '事件'],
-  func: async (_page, kwargs) => withAliasesRows(
-    (await pollTaskRecordRows(kwargs)).map((record) => ({
-      ...record,
-      taskStatus: taskStatusLabel(record.taskStatus),
-    })),
-    {
-      taskId: '任务ID',
-      taskType: '任务类型',
-      taskStatus: '任务状态',
-      modelName: '模型',
-      projectGroupNo: '项目组编号',
-      firstResultUrl: '首个结果',
-      timedOut: '是否超时',
-      event: '事件',
-    },
-  ),
+  columns: ['taskId', 'taskType', 'taskStatus', 'modelName', 'projectGroupNo', 'firstResultUrl', 'timedOut', 'event'],
+  func: async (_page, kwargs) => presentTaskRecordRows(await pollTaskRecordRows(kwargs)),
 });
 
 cli({
@@ -8788,7 +8806,7 @@ cli({
     TASK_RECORD_FILE_ARG,
     DRY_RUN_ARG,
   ],
-  columns: ['任务ID', '任务状态', '预计积分', '项目组余额', '提交后项目组剩余', '项目组编号', '首个结果'],
+  columns: ['taskId', 'taskStatus', 'pointCost', 'projectPointBalance', 'projectPointRemainingAfter', 'projectGroupNo', 'firstResultUrl'],
   func: async (_page, kwargs) => {
     ensureModelSelector('image-create', kwargs);
     ensureRequiredArgs('image-create', kwargs, [
@@ -9070,7 +9088,7 @@ cli({
     TASK_RECORD_FILE_ARG,
     DRY_RUN_ARG,
   ],
-  columns: ['任务ID', '任务状态', '预计积分', '项目组余额', '提交后项目组剩余', '项目组编号', '首个结果'],
+  columns: ['taskId', 'taskStatus', 'pointCost', 'projectPointBalance', 'projectPointRemainingAfter', 'projectGroupNo', 'firstResultUrl'],
   func: async (_page, kwargs) => {
     ensureModelSelector('video-create', kwargs);
     if (!hasVideoSubmissionContent(kwargs)) {
