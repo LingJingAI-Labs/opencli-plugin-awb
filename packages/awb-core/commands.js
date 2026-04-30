@@ -3373,6 +3373,16 @@ function hasVideoReferenceFeature(value) {
   return !!text && text !== '无';
 }
 
+function isGrokVideoModel(value = {}) {
+  const text = [
+    value?.modelCode,
+    value?.modelGroupCode,
+    value?.modelName,
+    value?.provider,
+  ].map((item) => String(item ?? '')).join(' ').toLowerCase();
+  return /\bgrok\b/.test(text) || /\bxai\b/.test(text);
+}
+
 function summarizeDurationFeature(paramMap) {
   const option = paramMap.get('generated_time') ?? paramMap.get('duration') ?? paramMap.get('seconds');
   if (!option) return null;
@@ -3514,7 +3524,7 @@ function summarizeModelOptionConstraint(option) {
 
 function normalizeModelOptionRows(payload, kind = 'generic', modelDefinition = null) {
   const ruleSourceMap = buildModelParamMap(normalizeModelParamDefs(modelDefinition));
-  return firstArray(payload)
+  const rows = firstArray(payload)
     .map((item) => {
       const merged = mergeModelOptionDef(item, ruleSourceMap);
       const values = optionValues(merged);
@@ -3530,12 +3540,50 @@ function normalizeModelOptionRows(payload, kind = 'generic', modelDefinition = n
       };
     })
     .sort((left, right) => toInt(left?.rank, 0) - toInt(right?.rank, 0));
+  return kind === 'video' && isGrokVideoModel(modelDefinition)
+    ? normalizeGrokVideoOptionRows(rows)
+    : rows;
 }
 
 function normalizeModelOptionDisplayName(option) {
   const key = String(option?.paramKey ?? '');
   if (key === 'audio' || key === 'need_audio' || key === 'needAudio') return '声音开关';
   return option?.paramName ?? null;
+}
+
+function normalizeGrokVideoOptionRows(rows) {
+  return rows.map((row) => {
+    if (row?.paramKey === 'frames') {
+      return {
+        ...row,
+        paramName: '首图生视频',
+        cliFlag: '--frameFile ./frame.webp --prompt "保持原图主体，轻微运镜"',
+        constraint: [
+          trimToNull(row.constraint),
+          '单张首图；输出比例跟随输入图；--ratio 在此模式无效',
+        ].filter(Boolean).join('；'),
+      };
+    }
+    if (row?.paramKey === 'multi_param') {
+      return {
+        ...row,
+        paramName: '多参考图',
+        cliFlag: '--refImageFiles "图1=./a.webp,图2=./b.webp" --ratio 16:9',
+        constraint: [
+          trimToNull(row.constraint),
+          '至少 2 张图片才是多参考模式；可选 --ratio 16:9 / 9:16',
+        ].filter(Boolean).join('；'),
+      };
+    }
+    if (row?.paramKey === 'ratio') {
+      return {
+        ...row,
+        allowedValues: '16:9, 9:16',
+        constraint: '仅多参考图模式生效；可选: 16:9 / 9:16；首图生视频会跟随输入图比例',
+      };
+    }
+    return row;
+  });
 }
 
 function ensureRequiredArgs(commandName, kwargs, specs) {
@@ -3604,6 +3652,14 @@ async function validateModelPromptParams(kind, kwargs, promptParams, source = pr
     if (!shouldValidateModelOption(option)) continue;
     const paramKey = option?.paramKey;
     if (!paramKey) continue;
+    if (
+      kind === 'video' &&
+      paramKey === 'ratio' &&
+      generatedMode === 'frames' &&
+      isGrokVideoModel(kwargs)
+    ) {
+      continue;
+    }
     if (
       kind === 'video' &&
       paramKey === 'frames' &&
@@ -3701,8 +3757,12 @@ function normalizeModelRows(payload) {
     const paramDefs = normalizeModelParamDefs(item);
     const paramMap = buildModelParamMap(paramDefs);
     const imageRefFeature = kind === 'image' ? summarizeImageReferenceFeature(paramMap) : null;
-    const videoFrameFeature = kind === 'video' ? summarizeVideoFrameFeature(paramMap) : null;
-    const videoReferenceFeature = kind === 'video' ? summarizeVideoReferenceFeature(paramMap) : null;
+    let videoFrameFeature = kind === 'video' ? summarizeVideoFrameFeature(paramMap) : null;
+    let videoReferenceFeature = kind === 'video' ? summarizeVideoReferenceFeature(paramMap) : null;
+    if (kind === 'video' && isGrokVideoModel({ ...item, modelCode, modelGroupCode })) {
+      videoFrameFeature = '首图生视频';
+      videoReferenceFeature = paramMap.has('multi_param') ? '多图参考(2+)' : videoReferenceFeature;
+    }
     const extraFeatures = summarizeExtraModelFeatures(item, kind, paramMap);
     const durationFeature = kind === 'video' ? summarizeDurationFeature(paramMap) : null;
     const frameOption = paramMap.get('frames');
@@ -3798,6 +3858,9 @@ function buildModelPreviewCommand(kind, modelRow) {
 
   if (videoModelSupportsPromptOnly(modelRow)) {
     return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "雨夜街头，人物缓慢走向镜头，电影感" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`;
+  }
+  if (isGrokVideoModel(modelRow)) {
+    return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "保持原图主体，轻微运镜" --frameFile ./frame.webp --quality <quality> --generatedTime <seconds> --dryRun true`;
   }
   if (modelCode.includes('happyhorse-1.0-i2v')) {
     return `${runtimeCommandPrefix()} video-create --modelGroupCode ${groupCode} --prompt "保持原图主体，轻微运镜" --frameFile ./frame.webp --generatedTime <seconds> --dryRun true`;
@@ -4934,6 +4997,30 @@ async function resolveVideoReferenceInputs(kwargs, options = {}) {
   };
 }
 
+function validateGrokVideoModeInputs(resolvedKwargs, referenceInputs, generatedMode) {
+  const imageCount = referenceInputs.imageRefs.length;
+  if (
+    referenceInputs.videoRefs.length ||
+    referenceInputs.audioRefs.length ||
+    referenceInputs.subjectRefs.length
+  ) {
+    throw new Error('Grok 官方视频当前只有首图生视频和多参考图两种模式；请只传图片参考，不要传视频、音频或主体引用。');
+  }
+  if (
+    trimToNull(resolvedKwargs.tailFrameFile) ||
+    trimToNull(resolvedKwargs.tailFrameUrl) ||
+    trimToNull(resolvedKwargs.tailFrameText)
+  ) {
+    throw new Error('Grok 官方首尾帧配置实际是首图生视频：只接受一张首图，不能再传尾帧。');
+  }
+  if (generatedMode === 'multi_param' && imageCount < 2) {
+    throw new Error('Grok 官方多参考图模式至少需要 2 张图片；单张图请用 `--frameFile`，或只传 1 张 `--refImageFiles` 让 CLI 自动走首图生视频。');
+  }
+  if (generatedMode === 'frames' && imageCount > 1) {
+    throw new Error('Grok 官方首图生视频只接受 1 张图；2 张及以上图片请走多参考图模式，不要指定 `--generatedMode frames`。');
+  }
+}
+
 async function resolveVideoPromptParams(kwargs) {
   const model = await resolveModelSelection('video', kwargs);
   const resolvedKwargs = {
@@ -4947,10 +5034,14 @@ async function resolveVideoPromptParams(kwargs) {
     parseStoryboardPromptsArg(resolvedKwargs.storyboardPrompts),
     generatedTime,
   );
-  const hasReferenceMode = referenceInputs.imageRefs.length > 0
+  let hasReferenceMode = referenceInputs.imageRefs.length > 0
     || referenceInputs.videoRefs.length > 0
     || referenceInputs.audioRefs.length > 0
     || referenceInputs.subjectRefs.length > 0;
+  const explicitGeneratedMode = trimToNull(resolvedKwargs.generatedMode);
+  if (isGrokVideoModel(model)) {
+    validateGrokVideoModeInputs(resolvedKwargs, referenceInputs, explicitGeneratedMode);
+  }
   const hasStoryboardMode = storyboardPrompts.length > 0;
   if (
     hasStoryboardMode &&
@@ -4981,6 +5072,19 @@ async function resolveVideoPromptParams(kwargs) {
   ) {
     throw new Error('参考生视频模式不能再混用首帧 / 尾帧 / framesJson。请二选一：要么用 `--frameFile` 这类首尾帧输入，要么改用 `--refImageFiles` / `--refVideoFiles` / `--refAudioFiles` / `--refSubjects`。');
   }
+  let grokSingleReferenceFrame = null;
+  if (
+    isGrokVideoModel(model) &&
+    referenceInputs.imageRefs.length === 1 &&
+    !referenceInputs.videoRefs.length &&
+    !referenceInputs.audioRefs.length &&
+    !referenceInputs.subjectRefs.length &&
+    (!explicitGeneratedMode || explicitGeneratedMode === 'frames')
+  ) {
+    grokSingleReferenceFrame = referenceInputs.imageRefs[0];
+    referenceInputs.imageRefs = [];
+    hasReferenceMode = false;
+  }
   let frames;
 
   if (hasReferenceMode || hasStoryboardMode) {
@@ -4996,7 +5100,14 @@ async function resolveVideoPromptParams(kwargs) {
     }
   } else {
     const frameEntries = [];
-    if (resolvedKwargs.frameText || resolvedKwargs.frameUrl || resolvedKwargs.frameFile) {
+    if (grokSingleReferenceFrame) {
+      frameEntries.push({
+        text: resolvedKwargs.frameText || resolvedKwargs.prompt || '',
+        url: grokSingleReferenceFrame.url || '',
+        backendPath: grokSingleReferenceFrame.backendPath ?? grokSingleReferenceFrame.url ?? '',
+        time: resolvedKwargs.frameTime || generatedTime,
+      });
+    } else if (resolvedKwargs.frameText || resolvedKwargs.frameUrl || resolvedKwargs.frameFile) {
       frameEntries.push({
         text: resolvedKwargs.frameText || resolvedKwargs.prompt || '',
         url: resolvedKwargs.frameUrl || '',
@@ -5020,6 +5131,9 @@ async function resolveVideoPromptParams(kwargs) {
 
   const referenceTs = String(Date.now());
   const normalizedFrames = frames.map(({ upload, _localFile, ...frame }) => frame);
+  if (isGrokVideoModel(model) && !hasReferenceMode && countFrameInputs(normalizedFrames) > 1) {
+    throw new Error('Grok 官方首图生视频只接受 1 张首图；多张图片请改用 `--refImageFiles "图1=./a.webp,图2=./b.webp"`。');
+  }
   const multiParam = [];
   const mentionableRefs = [];
   const mentionTargetMap = new Map();
@@ -5107,6 +5221,7 @@ async function resolveVideoPromptParams(kwargs) {
     trimToNull(resolvedKwargs.generatedMode) ??
     (hasStoryboardMode ? 'multi_prompt' : hasReferenceMode ? 'multi_param' : 'frames');
   validateKnownVideoModelQuirks(model, generatedMode, generatedTime, hasReferenceMode);
+  const grokFrameMode = isGrokVideoModel(model) && generatedMode === 'frames';
   const explicitAudio =
     resolvedKwargs.audio == null || String(resolvedKwargs.audio).trim() === ''
       ? null
@@ -5129,7 +5244,7 @@ async function resolveVideoPromptParams(kwargs) {
   if (resolvedKwargs.quality != null && resolvedKwargs.quality !== '') {
     defaultParams.quality = resolvedKwargs.quality;
   }
-  if (resolvedKwargs.ratio != null && resolvedKwargs.ratio !== '') {
+  if (!grokFrameMode && resolvedKwargs.ratio != null && resolvedKwargs.ratio !== '') {
     defaultParams.ratio = resolvedKwargs.ratio;
   }
   if (!generatedTime) {
@@ -6533,11 +6648,15 @@ function buildModelModeExamples(kind, modelRow, rowByKey = new Map()) {
     examples.push(`纯提示词预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "雨夜街头，人物缓慢走向镜头，电影感" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
   }
   if (rowByKey.get('frames')) {
-    examples.push(`首尾帧预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --frameFile ./frame.webp --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
+    const ratioArg = isGrokVideoModel(modelRow) ? '' : ' --ratio <ratio>';
+    const label = isGrokVideoModel(modelRow) ? '首图生视频预演' : '首尾帧预演';
+    examples.push(`${label}: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --frameFile ./frame.webp --quality <quality> --generatedTime <seconds>${ratioArg} --dryRun true`);
   }
   if (rowByKey.get('multi_param')) {
     const refFeature = String(modelRow?.['参考模式'] ?? modelRow?.refFeature ?? '');
-    if (refFeature.includes('音频')) {
+    if (isGrokVideoModel(modelRow)) {
+      examples.push(`多参考图预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "两张参考图中的人物在雨夜奔跑" --refImageFiles "图1=./a.webp,图2=./b.webp" --quality <quality> --generatedTime <seconds> --ratio 16:9 --dryRun true`);
+    } else if (refFeature.includes('音频')) {
       examples.push(`多参考预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 对镜说话" --refImageFiles "角色A=./char.webp" --refAudioFiles "角色A=./voice.mp3" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
     } else if (refFeature.includes('视频')) {
       examples.push(`多参考预演: ${runtimeCommandPrefix()} video-create --modelGroupCode ${modelGroupCode} --prompt "@角色A 在雨夜奔跑" --refImageFiles "角色A=./char.webp" --refVideoFiles "动作=./motion.mp4" --quality <quality> --generatedTime <seconds> --ratio <ratio> --dryRun true`);
@@ -6555,7 +6674,7 @@ function buildModelModeExamples(kind, modelRow, rowByKey = new Map()) {
 function printModelOptionSummary(model, modelDefinition, rows, kind) {
   const rowByKey = new Map((Array.isArray(rows) ? rows : []).map((item) => [item?.paramKey, item]));
   const summaryLines = [];
-  const normalizedModel = normalizeModelRows([modelDefinition])[0] ?? {};
+  const normalizedModel = normalizeModelRows([modelDefinition ?? model])[0] ?? {};
   const featureText = normalizedModel?.featureSummary ?? null;
   summaryLines.push(`[AWB] 模型: ${modelDefinition?.modelName ?? model?.modelName ?? model?.modelCode}`);
   summaryLines.push(`[AWB] 模型组: ${modelDefinition?.modelGroupCode ?? model?.modelGroupCode}`);
@@ -6566,29 +6685,33 @@ function printModelOptionSummary(model, modelDefinition, rows, kind) {
     const row = rowByKey.get(key);
     if (!row) continue;
     const label = row?.名称 ?? row?.paramName ?? key;
-    const constraint = trimToNull(row?.约束);
+    const constraint = trimToNull(row?.约束 ?? row?.constraint);
     if (constraint) {
       summaryLines.push(`[AWB] ${label}: ${constraint}`);
     }
   }
   if (kind === 'image') {
     const refRow = rowByKey.get('iref') ?? rowByKey.get('cref') ?? rowByKey.get('sref');
-    if (refRow && trimToNull(refRow?.约束)) {
-      summaryLines.push(`[AWB] 参考图: ${refRow.约束}`);
+    const constraint = trimToNull(refRow?.约束 ?? refRow?.constraint);
+    if (refRow && constraint) {
+      summaryLines.push(`[AWB] 参考图: ${constraint}`);
     }
   }
   if (kind === 'video') {
     const frameRow = rowByKey.get('frames');
-    if (frameRow && trimToNull(frameRow?.约束)) {
-      summaryLines.push(`[AWB] 帧输入: ${frameRow.约束}`);
+    const frameConstraint = trimToNull(frameRow?.约束 ?? frameRow?.constraint);
+    if (frameRow && frameConstraint) {
+      summaryLines.push(`[AWB] 帧输入: ${frameConstraint}`);
     }
     const refRow = rowByKey.get('multi_param');
-    if (refRow && trimToNull(refRow?.约束)) {
-      summaryLines.push(`[AWB] 多参考: ${refRow.约束}`);
+    const refConstraint = trimToNull(refRow?.约束 ?? refRow?.constraint);
+    if (refRow && refConstraint) {
+      summaryLines.push(`[AWB] 多参考: ${refConstraint}`);
     }
     const boardRow = rowByKey.get('multi_prompt');
-    if (boardRow && trimToNull(boardRow?.约束)) {
-      summaryLines.push(`[AWB] 故事板: ${boardRow.约束}`);
+    const boardConstraint = trimToNull(boardRow?.约束 ?? boardRow?.constraint);
+    if (boardRow && boardConstraint) {
+      summaryLines.push(`[AWB] 故事板: ${boardConstraint}`);
     }
   }
   for (const example of buildModelModeExamples(kind, normalizedModel, rowByKey)) {
@@ -7890,7 +8013,7 @@ cli({
         selectedConfigs: parseJsonArg(kwargs.selectedConfigsJson, {}) ?? {},
       },
     });
-    const rows = normalizeModelOptionRows(payload, kind, modelDefinition);
+    const rows = normalizeModelOptionRows(payload, kind, modelDefinition ?? model);
     printModelOptionSummary(model, modelDefinition, rows, kind);
     return rows;
   },

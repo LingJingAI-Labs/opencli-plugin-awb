@@ -54,16 +54,19 @@ fi
 ## 4. 全局执行规则
 
 - Agent 调 CLI 默认用 `-f json`，但必须配合 `jq` / `node` 只抽需要字段；不要让整段 JSON 或整张模型表进入上下文
+- **创作前先核对归属**：正式创作前先用 `me` / `project-groups` 确认当前团队、当前项目组、可用项目组和余额；向用户说明任务会挂到哪个项目组。当前项目组不明显匹配用户意图，或存在多个候选项目组时，先问是否切换或改用 `--projectGroupNo`。
 - 用 `--model "<关键词>"` 缩小模型表，别先扫全量
+- **选模型先讲通道和参数**：同一模型可能有多个模型组 / 通道 / 折扣 / 队列 / 成功率 / 参数白名单；先用 `image-models` / `video-models` 找候选，再用 `model-options` 查最终可传参数和可选值。不要凭模型名直接提交。
 - 创作命令优先 `image-fee` / `video-fee` 预算；只有结构复杂时再用 `--dryRun true`
 - **创作前必须确认**：除非用户已经明确说“直接生成 / 不用确认 / 自动跑 / 批量全部提交”，正式 `image-create` / `video-create` / `*-batch` 前必须先把模型组、通道/折扣、关键参数、最终提示词/参考素材、预估积分、项目组余额、等待策略汇总给用户确认。低费用也不能替代确认。
 - **参数不能替用户静默定档**：如果用户没明确给出，提交前要问清或给出默认建议并等待确认：生图 `ratio`、`quality`（如 `1K/2K/4K`）、`generateNum`；生视频 `ratio`、`quality`（如 `720/1080`）、`generatedTime`、是否输出声音 / 是否带音色参考 / 主体引用。
+- **提示词要成稿确认**：先把用户意图整理成最终 prompt；有参考图、人物、场景、镜头、风格、字幕、声音要求时写进 prompt 或参数绑定摘要里。正式提交前让用户确认这版 prompt 和关键参数。
 - **不要替用户静默选贵通道**：同一模型有标准 / Fast / Discount / Pro / 1080p 等通道时，先说明差异并默认选便宜试片通道；效果优先或高规格交付必须得到用户确认。
 - 参数以实时 `image-models` / `video-models` 和 `model-options` 为准；不在白名单的参数不传
 - 破坏性 / 写入命令（`auth-clear`、`team-select`、`project-group-*`、`redeem`、`invoice-apply`）支持 `--dryRun true`，没把握时先预览
 - 涉及项目组积分的操作（所有创作命令、`points`、`tasks`）默认挂当前项目组；可用 `--projectGroupNo` 覆盖
 - 创作失败先看项目组而非团队（`project-group-current` + `points`）
-- **等待默认策略**：单张图可同步等短窗口（如 90–180 秒）；视频、Token 计费、高复杂度和批量任务默认异步提交。异步/批量提交时加 `--taskRecordFile .awb/tasks.jsonl`，保存 taskId 后再 `task-wait` / `tasks` 查询。`task-wait` 超时只代表本次轮询结束，不代表任务失败。
+- **等待默认策略**：90–180 秒只是普通单图的前台轮询窗口，不是 AWB 平台 SLA，也不是任务最长耗时。对用户汇报时说“本轮先等 / 查询窗口 N 秒”，不要说“最多等待 N 秒”。视频、Token 计费、高复杂度、多张候选和批量任务默认异步提交；异步/批量提交时加 `--taskRecordFile .awb/tasks.jsonl`，保存 taskId 后再 `task-wait` / `tasks` 查询。`task-wait` 超时只代表本次轮询结束，不代表任务失败。
 
 ## 5. 版本与更新
 

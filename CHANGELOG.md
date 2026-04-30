@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.25 - 2026-04-30
+
+- Align Grok official video behavior with its current two modes: single image uses first-image video with source aspect ratio, while two or more images use multi-reference with selectable ratio.
+- Improve Grok `model-options` summaries and preview examples so ratio is only suggested for multi-reference mode.
+- Tighten AWB skill guidance around team/project-group confirmation, model channel selection, live parameter checks, prompt drafting, and pre-submit user confirmation.
+
 ## 0.1.24 - 2026-04-29
 
 - Compact high-frequency CLI JSON outputs beyond task queries, including model lists, `model-options`, uploads, subject status, batch rows, task stats, and AiHubMix status.

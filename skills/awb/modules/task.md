@@ -24,16 +24,16 @@
 
 ## 3. 同步还是异步
 
-- 单张普通图片：可以短窗口同步等，常用 90-180 秒。
+- 单张普通图片：可以短窗口同步轮询，常用 90-180 秒；这是本轮查询窗口，不是平台 SLA。
 - 多参考、高分辨率、多候选图：优先异步并写台账。
 - 视频：默认异步或短窗口等待；不要为几分钟到十几分钟的任务长期卡住终端。
 - 批量：先提交并记录 taskId，再分批轮询结果；不要逐条等完再提交下一条。
 
-`task-wait` 超时只代表本次轮询结束，不代表任务失败。
+`task-wait` 超时只代表本次轮询结束，不代表任务失败。对用户描述时不要说“最多等待 N 秒”，应说“本轮轮询 N 秒；未完成也会保留 taskId，可继续查”。
 
 ## 4. 耗时估算
 
-- 优先用 `model-duration-estimate --modelGroupCode <g> -f json`，看 `avgSeconds`、`suggestedWaitSeconds`、`confidence`。
+- 优先用 `model-duration-estimate --modelGroupCode <g> -f json`，看 `avgSeconds`、`suggestedWaitSeconds`、`confidence`。如果没有调用这个命令，就不能把 90-180 秒经验窗口描述成“预计耗时”或“最多等待”。
 - 低置信度或需要人工校准时，再用 `task-duration-stats` 对齐统计看板。
 - 看板地址：[task exec stat dashboard](https://monitor-statistics-llm.lingjingai.cn/static/task_exec_stat_dashboard.html)。字段不一定和 AWB 模型组一一对应，先宽口径查，再逐步加 `bizType / platformType / modelUseType / channel`。
 - 看板没有数据时使用经验窗口：图片几十秒到几分钟，视频通常几分钟起，高复杂度和批量默认异步。
